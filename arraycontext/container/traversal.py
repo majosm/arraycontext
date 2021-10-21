@@ -90,11 +90,11 @@ def _map_array_container_impl(
     def rec(_ary: ArrayOrContainerT) -> ArrayOrContainerT:
         if type(_ary) is leaf_cls:  # type(ary) is never None
             return f(_ary)
-        elif is_array_container_type(_ary.__class__):
+        try:
             return deserialize_container(_ary, [
                 (key, frec(subary)) for key, subary in serialize_container(_ary)
                 ])
-        else:
+        except TypeError:
             return f(_ary)
 
     frec = rec if recursive else f
