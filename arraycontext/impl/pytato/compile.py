@@ -46,7 +46,7 @@ import pytato as pt
 import itertools
 from pytools.tag import Tag
 
-from pytools import ProcessLogger
+from pytools import ProcessLogger, memoize
 
 import logging
 logger = logging.getLogger(__name__)
@@ -90,6 +90,7 @@ class LeafArrayDescriptor(AbstractInputDescriptor):
 # }}}
 
 
+@memoize
 def _ary_container_key_stringifier(keys: Tuple[Any, ...]) -> str:
     """
     Helper for :meth:`BaseLazilyCompilingFunctionCaller.__call__`. Stringifies an

@@ -71,7 +71,8 @@ import numpy as np
 from arraycontext.context import ArrayContext, Array, _ScalarLike
 from arraycontext.container import (
         ArrayT, ContainerT, ArrayOrContainerT, NotAnArrayContainerError,
-        serialize_container, deserialize_container)
+        serialize_container, deserialize_container,
+        get_container_context_recursively_opt)
 
 
 # {{{ array container traversal helpers
@@ -533,20 +534,22 @@ def freeze(
 
     See :meth:`ArrayContext.thaw`.
     """
-    try:
-        iterable = serialize_container(ary)
-    except NotAnArrayContainerError:
-        if actx is None:
-            raise TypeError(
-                    f"cannot freeze arrays of type {type(ary).__name__} "
-                    "when actx is not supplied. Try calling actx.freeze "
-                    "directly or supplying an array context")
-        else:
-            return actx.freeze(ary)
+    if actx is None:
+        actx = get_container_context_recursively_opt(ary)
     else:
-        return deserialize_container(ary, [
-            (key, freeze(subary, actx=actx)) for key, subary in iterable
-            ])
+        if __debug__:
+            rec_actx = get_container_context_recursively_opt(ary)
+            if (rec_actx is not None) and (rec_actx is not actx):
+                raise ValueError("Supplied array context does not agree with"
+                                 " the one obtained by traversing 'ary'.")
+
+    if actx is None:
+        raise TypeError(
+                f"cannot freeze arrays of type {type(ary).__name__} "
+                "when actx is not supplied. Try calling actx.freeze "
+                "directly or supplying an array context")
+
+    return actx.freeze(ary)
 
 
 @singledispatch
@@ -570,14 +573,35 @@ def thaw(ary: ArrayOrContainerT, actx: ArrayContext) -> ArrayOrContainerT:
         in :mod:`meshmode`. This was necessary because
         :func:`~functools.singledispatch` only dispatches on the first argument.
     """
+    if __debug__:
+        rec_actx = get_container_context_recursively_opt(ary)
+        if rec_actx is not None:
+            raise ValueError("cannot thaw a container that already has an array"
+                             " context.")
+
+    return actx.thaw(ary)
+
+# }}}
+
+
+# {{{ with_array_context
+
+@singledispatch
+def with_array_context(ary: ArrayOrContainerT,
+                       actx: Optional[ArrayContext]) -> ArrayOrContainerT:
+    """
+    Recursively associates *actx* to all the components of *ary*.
+
+    Array container types may use :func:`functools.singledispatch` ``.register``
+    to register additional implementations.
+    """
     try:
         iterable = serialize_container(ary)
     except NotAnArrayContainerError:
-        return actx.thaw(ary)
+        return ary
     else:
-        return deserialize_container(ary, [
-            (key, thaw(subary, actx)) for key, subary in iterable
-            ])
+        return deserialize_container(ary, [(key, with_array_context(subary, actx))
+                                           for key, subary in iterable])
 
 # }}}
 
@@ -842,7 +866,10 @@ def to_numpy(ary: ArrayOrContainerT, actx: ArrayContext) -> Any:
                     f"array of type '{type(subary).__name__}' not in "
                     f"supported types {actx.array_types}")
 
-    return rec_map_array_container(_to_numpy_with_check, ary)
+    return rec_map_array_container(_to_numpy_with_check,
+                                   # do a freeze first, if 'actx' supports
+                                   # container-wide freezes
+                                   thaw(freeze(ary, actx), actx))
 
 # }}}
 
