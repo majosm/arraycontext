@@ -64,9 +64,12 @@ from .container.traversal import (
         outer)
 
 from .impl.pyopencl import PyOpenCLArrayContext
-from .impl.pytato import PytatoPyOpenCLArrayContext
+from .impl.pytato import (PytatoPyOpenCLArrayContext,
+                          PytatoJAXArrayContext)
+from .impl.jax import EagerJAXArrayContext
 
 from .pytest import (
+        PytestArrayContextFactory,
         PytestPyOpenCLArrayContextFactory,
         pytest_generate_tests_for_array_contexts,
         pytest_generate_tests_for_pyopencl_array_context)
@@ -102,9 +105,12 @@ __all__ = (
         "outer",
 
         "PyOpenCLArrayContext", "PytatoPyOpenCLArrayContext",
+        "PytatoJAXArrayContext",
+        "EagerJAXArrayContext",
 
         "make_loopy_program",
 
+        "PytestArrayContextFactory",
         "PytestPyOpenCLArrayContextFactory",
         "pytest_generate_tests_for_array_contexts",
         "pytest_generate_tests_for_pyopencl_array_context"
