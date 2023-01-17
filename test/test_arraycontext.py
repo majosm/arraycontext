@@ -50,6 +50,7 @@ from arraycontext.pytest import (
     _PytestPyOpenCLArrayContextFactoryWithClass,
     _PytestPytatoJaxArrayContextFactory,
     _PytestPytatoPyOpenCLArrayContextFactory,
+    _PytestSplitPytatoPyOpenCLArrayContextFactory,
 )
 from testlib import DOFArray, MyContainer, MyContainerDOFBcast, Velocity2D
 
@@ -100,6 +101,7 @@ pytest_generate_tests = pytest_generate_tests_for_array_contexts([
     _PytestEagerJaxArrayContextFactory,
     _PytestPytatoJaxArrayContextFactory,
     _PytestNumpyArrayContextFactory,
+    _PytestSplitPytatoPyOpenCLArrayContextFactory,
     ])
 
 
