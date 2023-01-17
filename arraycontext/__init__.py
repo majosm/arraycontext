@@ -91,6 +91,7 @@ from .impl.jax import EagerJAXArrayContext
 from .impl.numpy import NumpyArrayContext
 from .impl.pyopencl import PyOpenCLArrayContext
 from .impl.pytato import PytatoJAXArrayContext, PytatoPyOpenCLArrayContext
+from .impl.pytato.split_actx import SplitPytatoPyOpenCLArrayContext
 from .loopy import make_loopy_program
 from .pytest import (
     PytestArrayContextFactory,
@@ -129,6 +130,7 @@ __all__ = (
     "ScalarLike",
     "SerializationKey",
     "SerializedContainer",
+    "SplitPytatoPyOpenCLArrayContext",
     "dataclass_array_container",
     "deserialize_container",
     "flat_size_and_dtype",
