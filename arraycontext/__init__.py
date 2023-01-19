@@ -91,6 +91,7 @@ from .impl.jax import EagerJAXArrayContext
 from .impl.numpy import NumpyArrayContext
 from .impl.pyopencl import PyOpenCLArrayContext
 from .impl.pytato import PytatoJAXArrayContext, PytatoPyOpenCLArrayContext
+from .impl.pytato.batched_einsum import BatchedEinsumPytatoPyOpenCLArrayContext
 from .impl.pytato.split_actx import SplitPytatoPyOpenCLArrayContext
 from .loopy import make_loopy_program
 from .pytest import (
@@ -116,6 +117,7 @@ __all__ = (
     "ArrayOrContainerOrScalarT",
     "ArrayOrContainerT",
     "ArrayT",
+    "BatchedEinsumPytatoPyOpenCLArrayContext",
     "CommonSubexpressionTag",
     "EagerJAXArrayContext",
     "ElementwiseMapKernelTag",
