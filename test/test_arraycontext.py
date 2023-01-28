@@ -350,7 +350,7 @@ def test_actx_ravel(actx_factory):
     actx = actx_factory()
     rng = default_rng()
     ndim = rng.integers(low=1, high=6)
-    shape = tuple(rng.integers(2, 7, ndim))
+    shape = tuple(rng.integers(2, 8, ndim))
 
     assert_close_to_numpy(actx, lambda _np, ary: _np.ravel(ary),
                           (rng.random(shape),))
@@ -595,7 +595,7 @@ def test_array_context_einsum_array_manipulation(actx_factory, spec):
     actx = actx_factory()
     rng = np.random.default_rng()
 
-    mat = actx.from_numpy(rng.normal(size=(10, 10)))
+    mat = actx.from_numpy(rng.normal(size=(16, 16)))
     res = actx.to_numpy(actx.einsum(spec, mat))
     ans = np.einsum(spec, actx.to_numpy(mat))
     assert np.allclose(res, ans)
@@ -610,8 +610,8 @@ def test_array_context_einsum_array_matmatprods(actx_factory, spec):
     actx = actx_factory()
     rng = np.random.default_rng()
 
-    mat_a = actx.from_numpy(rng.normal(size=(5, 5)))
-    mat_b = actx.from_numpy(rng.normal(size=(5, 5)))
+    mat_a = actx.from_numpy(rng.normal(size=(16, 16)))
+    mat_b = actx.from_numpy(rng.normal(size=(16, 16)))
     res = actx.to_numpy(actx.einsum(spec, mat_a, mat_b))
     ans = np.einsum(spec, actx.to_numpy(mat_a), actx.to_numpy(mat_b))
     assert np.allclose(res, ans)
@@ -624,9 +624,9 @@ def test_array_context_einsum_array_tripleprod(actx_factory, spec):
     actx = actx_factory()
     rng = np.random.default_rng()
 
-    mat_a = actx.from_numpy(rng.normal(size=(7, 5)))
-    mat_b = actx.from_numpy(rng.normal(size=(5, 7)))
-    vec = actx.from_numpy(rng.normal(size=(7)))
+    mat_a = actx.from_numpy(rng.normal(size=(16, 4)))
+    mat_b = actx.from_numpy(rng.normal(size=(4, 16)))
+    vec = actx.from_numpy(rng.normal(size=(16)))
     res = actx.to_numpy(actx.einsum(spec, mat_a, mat_b, vec))
     ans = np.einsum(spec,
                     actx.to_numpy(mat_a),
@@ -1313,7 +1313,7 @@ def test_actx_compile_on_pure_array_return(actx_factory):
 
     actx = actx_factory()
     ones = actx.thaw(actx.freeze(
-        actx.np.zeros(shape=(10, 4), dtype=np.float64) + 1
+        actx.zeros(shape=(16, 4), dtype=np.float64) + 1
         ))
     np.testing.assert_allclose(actx.to_numpy(_twice(ones)),
                                actx.to_numpy(actx.compile(_twice)(ones)))
@@ -1409,11 +1409,11 @@ def test_compile_anonymous_function(actx_factory):
     actx = actx_factory()
     f = actx.compile(lambda x: 2*x+40)
     np.testing.assert_allclose(
-        actx.to_numpy(f(1+actx.np.zeros((10, 4), "float64"))),
+        actx.to_numpy(f(1+actx.zeros((16, 4), "float64"))),
         42)
     f = actx.compile(partial(lambda x: 2*x+40))
     np.testing.assert_allclose(
-        actx.to_numpy(f(1+actx.np.zeros((10, 4), "float64"))),
+        actx.to_numpy(f(1+actx.zeros((16, 4), "float64"))),
         42)
 
 
