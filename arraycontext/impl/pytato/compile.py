@@ -334,14 +334,38 @@ class BaseLazilyCompilingFunctionCaller:
             arg_id: f"_actx_in_{_ary_container_key_stringifier(arg_id)}"
             for arg_id in arg_id_to_arg}
 
-        output_template = self.f(
-                *[_get_f_placeholder_args(arg, iarg,
-                                          input_id_to_name_in_program, self.actx)
-                    for iarg, arg in enumerate(args)],
-                **{kw: _get_f_placeholder_args(arg, kw,
-                                               input_id_to_name_in_program,
-                                               self.actx)
-                    for kw, arg in kwargs.items()})
+        ph_args = [_get_f_placeholder_args(arg, iarg,
+                                           input_id_to_name_in_program, self.actx)
+                    for iarg, arg in enumerate(args)]
+
+        ph_kwargs = {kw: _get_f_placeholder_args(arg, kw,
+                                                 input_id_to_name_in_program,
+                                                 self.actx)
+                    for kw, arg in kwargs.items()}
+
+        def print_hash(keys, ary, *, prefix):
+            name = _ary_container_key_stringifier(keys)
+            print(prefix + f"{name=}, {hash(ary)=}")
+
+        from functools import partial
+        from mpi4py import MPI
+
+        if MPI.COMM_WORLD.rank == 0:
+            for iarg, (arg, ph_arg) in enumerate(zip(args, ph_args)):
+                print_arg_hash = partial(
+                    print_hash,
+                    prefix=f"BaseLazilyCompilingFunctionCaller.__call__: {iarg=}, ")
+                rec_keyed_map_array_container(print_arg_hash, arg)
+                rec_keyed_map_array_container(print_arg_hash, ph_arg)
+
+        output_template = self.f(*ph_args, **ph_kwargs)
+
+        if MPI.COMM_WORLD.rank == 0:
+            rec_keyed_map_array_container(
+                partial(
+                    print_hash,
+                    prefix="BaseLazilyCompilingFunctionCaller.__call__: "),
+                output_template)
 
         self.actx._compile_trace_callback(self.f, "post_trace", output_template)
 
