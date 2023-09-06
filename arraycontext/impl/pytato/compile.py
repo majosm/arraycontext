@@ -378,8 +378,6 @@ class BaseLazilyCompilingFunctionCaller:
 # {{{ LazilyPyOpenCLCompilingFunctionCaller
 
 class LazilyPyOpenCLCompilingFunctionCaller(BaseLazilyCompilingFunctionCaller):
-    actx: PytatoPyOpenCLArrayContext
-
     @property
     def compiled_function_returning_array_container_class(
             self) -> Type["CompiledFunction"]:
@@ -393,7 +391,7 @@ class LazilyPyOpenCLCompilingFunctionCaller(BaseLazilyCompilingFunctionCaller):
         if prg_id is None:
             prg_id = self.f
 
-        from pytato.target.loopy import BoundPyOpenCLExecutable
+        from pytato.target.loopy import BoundPyOpenCLProgram
 
         self.actx._compile_trace_callback(
                 prg_id, "pre_transform_dag", dict_of_named_arrays)
@@ -424,8 +422,8 @@ class LazilyPyOpenCLCompilingFunctionCaller(BaseLazilyCompilingFunctionCaller):
                     options=opts,
                     function_name=_prg_id_to_kernel_name(prg_id),
                     target=self.actx.get_target(),
-                    ).bind_to_context(self.actx.context)  # pylint: disable=no-member
-            assert isinstance(pytato_program, BoundPyOpenCLExecutable)
+                    )
+            assert isinstance(pytato_program, BoundPyOpenCLProgram)
 
         self.actx._compile_trace_callback(
                 prg_id, "post_generate_loopy", pytato_program)
@@ -436,14 +434,15 @@ class LazilyPyOpenCLCompilingFunctionCaller(BaseLazilyCompilingFunctionCaller):
         with ProcessLogger(logger, f"transform_loopy_program for '{prg_id}'"):
 
             pytato_program = (pytato_program
-                              .with_transformed_translation_unit(
+                              .with_transformed_program(
                                   lambda x: x.with_kernel(
                                       x.default_entrypoint
                                       .tagged(FromArrayContextCompile()))))
 
             pytato_program = (pytato_program
-                              .with_transformed_translation_unit(
-                                  self.actx.transform_loopy_program))
+                              .with_transformed_program(self
+                                                        .actx
+                                                        .transform_loopy_program))
 
         self.actx._compile_trace_callback(
                 prg_id, "post_transform_loopy_program", pytato_program)
