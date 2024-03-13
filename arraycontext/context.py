@@ -164,6 +164,7 @@ from typing import (
     Any,
     Callable,
     Dict,
+    Hashable,
     Mapping,
     Optional,
     Protocol,
@@ -541,7 +542,8 @@ class ArrayContext(ABC):
 
     def outline(self,
                 f: Callable[..., Any],
-                name: Optional[str] = None) -> Callable[..., Any]:
+                *,
+                id: Optional[Hashable] = None) -> Callable[..., Any]:
         """
         Returns a drop-in-replacement for *f*. The behavior of the returned
         callable is specific to the derived class.
