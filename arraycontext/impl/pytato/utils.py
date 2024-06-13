@@ -90,6 +90,9 @@ def _normalize_pt_expr(
     Deterministic naming of placeholders permits more effective caching of
     equivalent graphs.
     """
+    # Remove any duplicates
+    expr = CopyMapper(err_on_collision=False)(expr)
+
     normalize_mapper = _DatawrapperToBoundPlaceholderMapper()
     normalized_expr = normalize_mapper(expr)
     return normalized_expr, normalize_mapper.bound_arguments
