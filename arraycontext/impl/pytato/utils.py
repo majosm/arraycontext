@@ -36,7 +36,7 @@ from pytato.array import (
     make_placeholder,
 )
 from pytato.target.loopy import LoopyPyOpenCLTarget
-from pytato.transform import CopyMapper
+from pytato.transform import CopyMapper, Deduplicator
 from pytools import UniqueNameGenerator, memoize_method
 
 from arraycontext.impl.pyopencl.taggable_cl_array import Axis as ClAxis
@@ -97,6 +97,8 @@ def _normalize_pt_expr(
     Deterministic naming of placeholders permits more effective caching of
     equivalent graphs.
     """
+    expr = Deduplicator()(expr)
+
     normalize_mapper = _DatawrapperToBoundPlaceholderMapper()
     normalized_expr = normalize_mapper(expr)
     return normalized_expr, normalize_mapper.bound_arguments
