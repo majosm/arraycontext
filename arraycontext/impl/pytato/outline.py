@@ -205,13 +205,17 @@ class OutlinedCall:
             unpacked_prefixed_output = _unpack_output(prefixed_output)
             if isinstance(unpacked_prefixed_output, pt.Array):
                 unpacked_prefixed_output = {"_": unpacked_prefixed_output}
+            unpacked_prefixed_output = pt.make_dict_of_named_arrays(
+                unpacked_prefixed_output)
+            # Remove any duplicates
+            unpacked_prefixed_output = pt.transform.CopyMapper(
+                err_on_collision=False)(unpacked_prefixed_output)
 
             prefixed_placeholders = frozenset(
                 arg_id_to_prefixed_placeholder.values())
 
             found_placeholders = frozenset({
-                arg for arg in pt.transform.InputGatherer()(
-                    pt.make_dict_of_named_arrays(unpacked_prefixed_output))
+                arg for arg in pt.transform.InputGatherer()(unpacked_prefixed_output)
                 if isinstance(arg, pt.Placeholder)})
 
             extra_placeholders = found_placeholders - prefixed_placeholders
@@ -228,10 +232,14 @@ class OutlinedCall:
             ret_type = pt.function.ReturnType.ARRAY
         else:
             ret_type = pt.function.ReturnType.DICT_OF_ARRAYS
+        unpacked_output = pt.make_dict_of_named_arrays(unpacked_output)
+        # Remove any duplicates
+        unpacked_output = pt.transform.CopyMapper(err_on_collision=False)(
+            unpacked_output)
 
         used_placeholders = frozenset({
             arg for arg in pt.transform.InputGatherer()(
-                pt.make_dict_of_named_arrays(unpacked_output))
+                unpacked_output)
             if isinstance(arg, pt.Placeholder)})
 
         call_bindings = {
@@ -246,7 +254,7 @@ class OutlinedCall:
         func_def = pt.function.FunctionDefinition(
             parameters=frozenset(call_bindings.keys()),
             return_type=ret_type,
-            returns=immutabledict(unpacked_output),
+            returns=immutabledict(unpacked_output._data),
             tags=self.tags,
         )
 
