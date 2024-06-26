@@ -514,6 +514,10 @@ class PytatoPyOpenCLArrayContext(_BasePytatoArrayContext):
 
         pt_dict_of_named_arrays = pt.make_dict_of_named_arrays(
                 key_to_pt_arrays)
+
+        pt_dict_of_named_arrays = pt.transform.CopyMapper(err_on_collision=False)(
+            pt_dict_of_named_arrays)
+
         normalized_expr, bound_arguments = _normalize_pt_expr(
                 pt_dict_of_named_arrays)
 
