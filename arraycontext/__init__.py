@@ -80,6 +80,7 @@ from .context import (
 from .impl.jax import EagerJAXArrayContext
 from .impl.pyopencl import PyOpenCLArrayContext
 from .impl.pytato import PytatoJAXArrayContext, PytatoPyOpenCLArrayContext
+from .impl.numpy import NumpyArrayContext
 from .loopy import make_loopy_program
 from .pytest import (
     PytestArrayContextFactory,
@@ -105,6 +106,7 @@ __all__ = (
     "EagerJAXArrayContext",
     "ElementwiseMapKernelTag",
     "NotAnArrayContainerError",
+    "NumpyArrayContext",
     "PyOpenCLArrayContext",
     "PytatoJAXArrayContext",
     "PytatoPyOpenCLArrayContext",
