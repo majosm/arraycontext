@@ -88,7 +88,7 @@ class PytatoFakeNumpyNamespace(LoopyBasedFakeNumpyNamespace):
         def _zeros_like(array):
             # return self._array_context.zeros(
             #    array.shape, array.dtype).copy(axes=array.axes, tags=array.tags)
-            return 0*ary
+            return 0*array
 
         return self._array_context._rec_map_container(
             _zeros_like, ary, default_scalar=0)
@@ -100,7 +100,7 @@ class PytatoFakeNumpyNamespace(LoopyBasedFakeNumpyNamespace):
         def _full_like(subary):
             #    return pt.full(subary.shape, fill_value, subary.dtype).copy(
             #        axes=subary.axes, tags=subary.tags)
-            return fill_value * (0*ary + 1)
+            return fill_value * (0*subary + 1)
 
         return self._array_context._rec_map_container(
             _full_like, ary, default_scalar=fill_value)
