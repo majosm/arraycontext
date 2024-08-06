@@ -136,7 +136,8 @@ class DOFArray:
         self.array_context = actx
         self.data = data
 
-    __array_priority__ = 10
+    # prevent numpy broadcasting
+    __array_ufunc__ = None
 
     def __bool__(self):
         if len(self) == 1 and self.data[0].size == 1:
@@ -221,6 +222,8 @@ class MyContainer:
     mass: Union[DOFArray, np.ndarray]
     momentum: np.ndarray
     enthalpy: Union[DOFArray, np.ndarray]
+
+    __array_ufunc__ = None
 
     @property
     def array_context(self):
@@ -1367,7 +1370,8 @@ def test_container_equality(actx_factory):
 class Foo:
     u: DOFArray
 
-    __array_priority__ = 1  # disallow numpy arithmetic to take precedence
+    # prevent numpy arithmetic from taking precedence
+    __array_ufunc__ = None
 
     @property
     def array_context(self):
