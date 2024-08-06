@@ -30,30 +30,44 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-from typing import Dict
+from typing import Any, Dict
 
 import numpy as np
 
 import loopy as lp
+from pytools.tag import ToTagSetConvertible
 
-from arraycontext.container.traversal import (
-    rec_map_array_container, with_array_context)
-from arraycontext.context import ArrayContext
+from arraycontext.container.traversal import rec_map_array_container, with_array_context
+from arraycontext.context import (
+    ArrayContext,
+    ArrayOrContainerOrScalar,
+    ArrayOrContainerOrScalarT,
+    NumpyOrContainerOrScalar,
+)
+
+
+class NumpyNonObjectArrayMetaclass(type):
+    def __instancecheck__(cls, instance: Any) -> bool:
+        return isinstance(instance, np.ndarray) and instance.dtype != object
+
+
+class NumpyNonObjectArray(metaclass=NumpyNonObjectArrayMetaclass):
+    pass
 
 
 class NumpyArrayContext(ArrayContext):
     """
-    A :class:`ArrayContext` that uses :mod:`numpy.ndarray` to represent arrays
+    A :class:`ArrayContext` that uses :class:`numpy.ndarray` to represent arrays.
 
 
     .. automethod:: __init__
     """
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
         self._loopy_transform_cache: \
-            Dict["lp.TranslationUnit", "lp.TranslationUnit"] = {}
+                Dict[lp.TranslationUnit, lp.TranslationUnit] = {}
 
-        self.array_types = (np.ndarray,)
+    array_types = (NumpyNonObjectArray,)
 
     def _get_fake_numpy_namespace(self):
         from .fake_numpy import NumpyFakeNumpyNamespace
@@ -64,18 +78,14 @@ class NumpyArrayContext(ArrayContext):
     def clone(self):
         return type(self)()
 
-    def empty(self, shape, dtype):
-        return np.empty(shape, dtype=dtype)
+    def from_numpy(self,
+                   array: NumpyOrContainerOrScalar
+                   ) -> ArrayOrContainerOrScalar:
+        return array
 
-    def zeros(self, shape, dtype):
-        return np.zeros(shape, dtype)
-
-    def from_numpy(self, np_array):
-        # Uh oh...
-        return np_array
-
-    def to_numpy(self, array):
-        # Uh oh...
+    def to_numpy(self,
+                 array: ArrayOrContainerOrScalar
+                 ) -> NumpyOrContainerOrScalar:
         return array
 
     def call_loopy(self, t_unit, **kwargs):
@@ -96,15 +106,13 @@ class NumpyArrayContext(ArrayContext):
         def _freeze(ary):
             return ary
 
-        return with_array_context(rec_map_array_container(_freeze, array),
-                                  actx=None)
+        return with_array_context(rec_map_array_container(_freeze, array), actx=None)
 
     def thaw(self, array):
         def _thaw(ary):
             return ary
 
-        return with_array_context(rec_map_array_container(_thaw, array),
-                                  actx=self)
+        return with_array_context(rec_map_array_container(_thaw, array), actx=self)
 
     # }}}
 
@@ -113,11 +121,16 @@ class NumpyArrayContext(ArrayContext):
                          "transform_loopy_program. Sub-classes are supposed "
                          "to implement it.")
 
-    def tag(self, tags, array):
+    def tag(self,
+            tags: ToTagSetConvertible,
+            array: ArrayOrContainerOrScalarT) -> ArrayOrContainerOrScalarT:
         # Numpy doesn't support tagging
         return array
 
-    def tag_axis(self, iaxis, tags, array):
+    def tag_axis(self,
+                 iaxis: int, tags: ToTagSetConvertible,
+                 array: ArrayOrContainerOrScalarT) -> ArrayOrContainerOrScalarT:
+        # Numpy doesn't support tagging
         return array
 
     def einsum(self, spec, *args, arg_names=None, tagged=()):

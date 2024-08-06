@@ -25,13 +25,18 @@ from functools import partial, reduce
 
 import numpy as np
 
-from arraycontext.container import is_array_container
+from arraycontext.container import NotAnArrayContainerError, serialize_container
 from arraycontext.container.traversal import (
-    multimap_reduce_array_container, rec_map_array_container,
-    rec_map_reduce_array_container, rec_multimap_array_container,
-    rec_multimap_reduce_array_container)
+    rec_map_array_container,
+    rec_map_reduce_array_container,
+    rec_multimap_array_container,
+    rec_multimap_reduce_array_container,
+)
+from arraycontext.context import Array, ArrayOrContainer
 from arraycontext.fake_numpy import (
-    BaseFakeNumpyLinalgNamespace, BaseFakeNumpyNamespace)
+    BaseFakeNumpyLinalgNamespace,
+    BaseFakeNumpyNamespace,
+)
 
 
 class NumpyFakeNumpyLinalgNamespace(BaseFakeNumpyLinalgNamespace):
@@ -41,7 +46,7 @@ class NumpyFakeNumpyLinalgNamespace(BaseFakeNumpyLinalgNamespace):
 
 _NUMPY_UFUNCS = {"abs", "sin", "cos", "tan", "arcsin", "arccos", "arctan",
                  "sinh", "cosh", "tanh", "exp", "log", "log10", "isnan",
-                 "sqrt", "concatenate", "transpose",
+                 "sqrt", "concatenate", "reshape", "transpose",
                  "ones_like", "maximum", "minimum", "where", "conj", "arctan2",
                  }
 
@@ -53,6 +58,9 @@ class NumpyFakeNumpyNamespace(BaseFakeNumpyNamespace):
     def _get_fake_numpy_linalg_namespace(self):
         return NumpyFakeNumpyLinalgNamespace(self._array_context)
 
+    def zeros(self, shape, dtype):
+        return np.zeros(shape, dtype)
+
     def __getattr__(self, name):
 
         if name in _NUMPY_UFUNCS:
@@ -60,7 +68,7 @@ class NumpyFakeNumpyNamespace(BaseFakeNumpyNamespace):
             return partial(rec_multimap_array_container,
                            getattr(np, name))
 
-        raise NotImplementedError
+        raise AttributeError(name)
 
     def sum(self, a, axis=None, dtype=None):
         return rec_map_reduce_array_container(sum, partial(np.sum,
@@ -82,8 +90,7 @@ class NumpyFakeNumpyNamespace(BaseFakeNumpyNamespace):
                 *arrays)
 
     def broadcast_to(self, array, shape):
-        return rec_map_array_container(partial(np.broadcast_to, shape=shape),
-                                       array)
+        return rec_map_array_container(partial(np.broadcast_to, shape=shape), array)
 
     # {{{ relational operators
 
@@ -124,21 +131,40 @@ class NumpyFakeNumpyNamespace(BaseFakeNumpyNamespace):
         return rec_map_reduce_array_container(partial(reduce, np.logical_and),
                                               lambda subary: np.all(subary), a)
 
-    def array_equal(self, a, b):
-        # should this be isinstance?
-        if type(a) != type(b):
-            return False
-        elif not is_array_container(a):
-            if a.shape != b.shape:
-                return False
-            else:
-                return np.all(np.equal(a, b))
-        else:
+    def array_equal(self, a: ArrayOrContainer, b: ArrayOrContainer) -> Array:
+        def rec_equal(x: ArrayOrContainer, y: ArrayOrContainer) -> np.ndarray:
+            false_ary = np.array(False)
+            true_ary = np.array(True)
+            if type(x) is not type(y):
+                return false_ary
+
             try:
-                return multimap_reduce_array_container(
-                    partial(reduce, np.logical_and), self.array_equal, a, b)
-            except TypeError:
-                return True
+                serialized_x = serialize_container(x)
+                serialized_y = serialize_container(y)
+            except NotAnArrayContainerError:
+                assert isinstance(x, np.ndarray)
+                assert isinstance(y, np.ndarray)
+                return np.array(np.array_equal(x, y))
+            else:
+                if len(serialized_x) != len(serialized_y):
+                    return false_ary
+                return reduce(
+                        np.logical_and,
+                        [(true_ary if kx_i == ky_i else false_ary)
+                            and rec_equal(x_i, y_i)
+                            for (kx_i, x_i), (ky_i, y_i)
+                            in zip(serialized_x, serialized_y)],
+                        true_ary)
+
+        result = rec_equal(a, b)
+
+        return result
+
+    def arange(self, *args, **kwargs):
+        return np.arange(*args, **kwargs)
+
+    def linspace(self, *args, **kwargs):
+        return np.linspace(*args, **kwargs)
 
     def zeros_like(self, ary):
         return rec_multimap_array_container(np.zeros_like, ary)
@@ -147,5 +173,6 @@ class NumpyFakeNumpyNamespace(BaseFakeNumpyNamespace):
         return rec_map_array_container(
                 lambda ary: ary.reshape(newshape, order=order),
                 a)
+
 
 # vim: fdm=marker

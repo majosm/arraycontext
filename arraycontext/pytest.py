@@ -145,7 +145,6 @@ class _PytestPytatoPyOpenCLArrayContextFactory(PytestPyOpenCLArrayContextFactory
     def actx_class(self):
         from arraycontext import PytatoPyOpenCLArrayContext
         actx_cls = PytatoPyOpenCLArrayContext
-        actx_cls.transform_loopy_program = lambda s, t_unit: t_unit
         return actx_cls
 
     def __call__(self):
@@ -242,6 +241,26 @@ class _PytestNumpyArrayContextFactory(PytestArrayContextFactory):
 
 # }}}
 
+
+
+# {{{ _PytestArrayContextFactory
+
+class _NumpyArrayContextForTests(NumpyArrayContext):
+    def transform_loopy_program(self, t_unit):
+        return t_unit
+
+
+class _PytestNumpyArrayContextFactory(PytestArrayContextFactory):
+    def __init__(self, *args, **kwargs):
+        super().__init__()
+
+    def __call__(self):
+        return _NumpyArrayContextForTests()
+
+    def __str__(self):
+        return "<NumpyArrayContext>"
+
+# }}}
 
 
 _ARRAY_CONTEXT_FACTORY_REGISTRY: \

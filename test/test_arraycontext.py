@@ -22,6 +22,7 @@ THE SOFTWARE.
 
 import logging
 from dataclasses import dataclass
+from functools import partial
 from typing import Union
 
 import numpy as np
@@ -33,6 +34,9 @@ from pytools.tag import Tag
 from arraycontext import (
     ArrayContainer,
     ArrayContext,
+    Bcast1,
+    Bcast2,
+    BcastUntilActxArray,
     EagerJAXArrayContext,
     NumpyArrayContext,
     PyOpenCLArrayContext,
@@ -117,10 +121,10 @@ def _acf():
 
 @with_container_arithmetic(
         bcast_obj_array=True,
-        bcast_numpy_array=True,
         bitwise=True,
         rel_comparison=True,
-        _cls_has_array_context_attr=True)
+        _cls_has_array_context_attr=True,
+        _bcast_actx_array_type=False)
 class DOFArray:
     def __init__(self, actx, data):
         if not (actx is None or isinstance(actx, ArrayContext)):
@@ -132,7 +136,8 @@ class DOFArray:
         self.array_context = actx
         self.data = data
 
-    __array_priority__ = 10
+    # prevent numpy broadcasting
+    __array_ufunc__ = None
 
     def __bool__(self):
         if len(self) == 1 and self.data[0].size == 1:
@@ -208,7 +213,8 @@ def _with_actx_dofarray(ary: DOFArray, actx: ArrayContext) -> DOFArray:  # type:
 
 @with_container_arithmetic(bcast_obj_array=False,
         eq_comparison=False, rel_comparison=False,
-        _cls_has_array_context_attr=True)
+        _cls_has_array_context_attr=True,
+        _bcast_actx_array_type=False)
 @dataclass_array_container
 @dataclass(frozen=True)
 class MyContainer:
@@ -216,6 +222,8 @@ class MyContainer:
     mass: Union[DOFArray, np.ndarray]
     momentum: np.ndarray
     enthalpy: Union[DOFArray, np.ndarray]
+
+    __array_ufunc__ = None
 
     @property
     def array_context(self):
@@ -230,7 +238,8 @@ class MyContainer:
         bcast_container_types=(DOFArray, np.ndarray),
         matmul=True,
         rel_comparison=True,
-        _cls_has_array_context_attr=True)
+        _cls_has_array_context_attr=True,
+        _bcast_actx_array_type=False)
 @dataclass_array_container
 @dataclass(frozen=True)
 class MyContainerDOFBcast:
@@ -937,8 +946,6 @@ def test_container_arithmetic(actx_factory):
     def _check_allclose(f, arg1, arg2, atol=5.0e-14):
         assert np.linalg.norm(actx.to_numpy(f(arg1) - arg2)) < atol
 
-    from functools import partial
-
     from arraycontext import rec_multimap_array_container
     for ary in [ary_dof, ary_of_dofs, mat_of_dofs, dc_of_dofs]:
         rec_multimap_array_container(
@@ -1117,7 +1124,7 @@ def test_flatten_array_container_failure(actx_factory):
 
     if not isinstance(actx, NumpyArrayContext):
         with pytest.raises(TypeError):
-            # cannot unflatten from a numpy array
+            # cannot unflatten from a numpy array (except for numpy actx)
             unflatten(ary, actx.to_numpy(flat_ary), actx)
 
     with pytest.raises(ValueError):
@@ -1179,16 +1186,17 @@ def test_numpy_conversion(actx_factory):
     assert np.allclose(ac.mass, ac_roundtrip.mass)
     assert np.allclose(ac.momentum[0], ac_roundtrip.momentum[0])
 
-    from dataclasses import replace
-    ac_with_cl = replace(ac, enthalpy=ac_actx.mass)
-    with pytest.raises(TypeError):
-        actx.from_numpy(ac_with_cl)
+    if not isinstance(actx, NumpyArrayContext):
+        from dataclasses import replace
+        ac_with_cl = replace(ac, enthalpy=ac_actx.mass)
+        with pytest.raises(TypeError):
+            actx.from_numpy(ac_with_cl)
 
-    with pytest.raises(TypeError):
-        actx.from_numpy(ac_actx)
+        with pytest.raises(TypeError):
+            actx.from_numpy(ac_actx)
 
-    with pytest.raises(TypeError):
-        actx.to_numpy(ac)
+        with pytest.raises(TypeError):
+            actx.to_numpy(ac)
 
 # }}}
 
@@ -1360,15 +1368,16 @@ def test_container_equality(actx_factory):
 
 @with_container_arithmetic(
     bcast_obj_array=True,
-    bcast_numpy_array=True,
     rel_comparison=True,
-    _cls_has_array_context_attr=True)
+    _cls_has_array_context_attr=True,
+    _bcast_actx_array_type=False)
 @dataclass_array_container
 @dataclass(frozen=True)
 class Foo:
     u: DOFArray
 
-    __array_priority__ = 1  # disallow numpy arithmetic to take precedence
+    # prevent numpy arithmetic from taking precedence
+    __array_ufunc__ = None
 
     @property
     def array_context(self):
@@ -1379,19 +1388,56 @@ def test_leaf_array_type_broadcasting(actx_factory):
     # test support for https://github.com/inducer/arraycontext/issues/49
     actx = actx_factory()
 
-    if isinstance(actx, NumpyArrayContext):
-        pytest.skip("NumpyArrayContext has no leaf array type broadcasting support")
-
-    foo = Foo(DOFArray(actx, (actx.zeros(3, dtype=np.float64) + 41, )))
+    dof_ary = DOFArray(actx, (actx.np.zeros(3, dtype=np.float64) + 41, ))
+    foo = Foo(dof_ary)
     bar = foo + 4
-    baz = foo + actx.from_numpy(4*np.ones((3, )))
-    qux = actx.from_numpy(4*np.ones((3, ))) + foo
+
+    bcast = partial(BcastUntilActxArray, actx)
+
+    actx_ary = actx.from_numpy(4*np.ones((3, )))
+    with pytest.raises(TypeError):
+        foo + actx_ary
+
+    baz = foo + Bcast2(actx_ary)
+    qux = Bcast2(actx_ary) + foo
 
     np.testing.assert_allclose(actx.to_numpy(bar.u[0]),
                                actx.to_numpy(baz.u[0]))
 
     np.testing.assert_allclose(actx.to_numpy(bar.u[0]),
                                actx.to_numpy(qux.u[0]))
+
+    baz = foo + bcast(actx_ary)
+    qux = bcast(actx_ary) + foo
+
+    np.testing.assert_allclose(actx.to_numpy(bar.u[0]),
+                               actx.to_numpy(baz.u[0]))
+
+    np.testing.assert_allclose(actx.to_numpy(bar.u[0]),
+                               actx.to_numpy(qux.u[0]))
+
+    mc = MyContainer(
+         name="hi",
+         mass=dof_ary,
+         momentum=make_obj_array([dof_ary, dof_ary]),
+         enthalpy=dof_ary)
+
+    with pytest.raises(TypeError):
+        mc_op = mc + actx_ary
+
+    mom_op = mc.momentum + Bcast1(actx_ary)
+    np.testing.assert_allclose(45, actx.to_numpy(mom_op[0][0]))
+
+    mc_op = mc + Bcast2(actx_ary)
+    np.testing.assert_allclose(45, actx.to_numpy(mc_op.mass[0]))
+    np.testing.assert_allclose(45, actx.to_numpy(mc_op.momentum[1][0]))
+
+    mom_op = mc.momentum + bcast(actx_ary)
+    np.testing.assert_allclose(45, actx.to_numpy(mom_op[0][0]))
+
+    mc_op = mc + bcast(actx_ary)
+    np.testing.assert_allclose(45, actx.to_numpy(mc_op.mass[0]))
+    np.testing.assert_allclose(45, actx.to_numpy(mc_op.momentum[1][0]))
 
     def _actx_allows_scalar_broadcast(actx):
         if not isinstance(actx, PyOpenCLArrayContext):
@@ -1403,8 +1449,11 @@ def test_leaf_array_type_broadcasting(actx_factory):
             return cl.version.VERSION > (2021, 2, 5)
 
     if _actx_allows_scalar_broadcast(actx):
-        quux = foo + actx.from_numpy(np.array(4))
-        quuz = actx.from_numpy(np.array(4)) + foo
+        with pytest.raises(TypeError):
+            foo + actx.from_numpy(np.array(4))
+
+        quuz = Bcast2(actx.from_numpy(np.array(4))) + foo
+        quux = foo + Bcast2(actx.from_numpy(np.array(4)))
 
         np.testing.assert_allclose(actx.to_numpy(bar.u[0]),
                                    actx.to_numpy(quux.u[0]))
@@ -1412,6 +1461,14 @@ def test_leaf_array_type_broadcasting(actx_factory):
         np.testing.assert_allclose(actx.to_numpy(bar.u[0]),
                                    actx.to_numpy(quuz.u[0]))
 
+        quuz = bcast(actx.from_numpy(np.array(4))) + foo
+        quux = foo + bcast(actx.from_numpy(np.array(4)))
+
+        np.testing.assert_allclose(actx.to_numpy(bar.u[0]),
+                                   actx.to_numpy(quux.u[0]))
+
+        np.testing.assert_allclose(actx.to_numpy(bar.u[0]),
+                                   actx.to_numpy(quuz.u[0]))
 # }}}
 
 
@@ -1480,15 +1537,6 @@ def test_outer(actx_factory):
                 b_bcast_dc_of_dofs.momentum),
             enthalpy=a_bcast_dc_of_dofs.enthalpy*b_bcast_dc_of_dofs.enthalpy))
 
-    # Non-object numpy arrays should be treated as scalars
-    ary_of_floats = np.ones(len(b_bcast_dc_of_dofs.mass))
-    assert equal(
-        outer(ary_of_floats, b_bcast_dc_of_dofs),
-        ary_of_floats*b_bcast_dc_of_dofs)
-    assert equal(
-        outer(a_bcast_dc_of_dofs, ary_of_floats),
-        a_bcast_dc_of_dofs*ary_of_floats)
-
 # }}}
 
 
@@ -1525,7 +1573,7 @@ def test_actx_compile_on_pure_array_return(actx_factory):
 
     actx = actx_factory()
     ones = actx.thaw(actx.freeze(
-        actx.zeros(shape=(10, 4), dtype=np.float64) + 1
+        actx.np.zeros(shape=(10, 4), dtype=np.float64) + 1
         ))
     np.testing.assert_allclose(actx.to_numpy(_twice(ones)),
                                actx.to_numpy(actx.compile(_twice)(ones)))
@@ -1588,7 +1636,7 @@ def test_taggable_cl_array_tags(actx_factory):
 def test_to_numpy_on_frozen_arrays(actx_factory):
     # See https://github.com/inducer/arraycontext/issues/159
     actx = actx_factory()
-    u = actx.freeze(actx.zeros(10, dtype="float64")+1)
+    u = actx.freeze(actx.np.zeros(10, dtype="float64")+1)
     np.testing.assert_allclose(actx.to_numpy(u), 1)
     np.testing.assert_allclose(actx.to_numpy(u), 1)
 
@@ -1596,10 +1644,8 @@ def test_to_numpy_on_frozen_arrays(actx_factory):
 def test_tagging(actx_factory):
     actx = actx_factory()
 
-    if isinstance(actx, EagerJAXArrayContext):
-        pytest.skip("Eager JAX has no tagging support")
-    if isinstance(actx, NumpyArrayContext):
-        pytest.skip("NumpyArrayContext has no tagging support")
+    if isinstance(actx, (NumpyArrayContext, EagerJAXArrayContext)):
+        pytest.skip(f"{type(actx)} has no tagging support")
 
     from pytools.tag import Tag
 
@@ -1609,7 +1655,7 @@ def test_tagging(actx_factory):
     ary = tag_axes(actx, {0: ExampleTag()},
             actx.tag(
                 ExampleTag(),
-                actx.zeros((20, 20), dtype=np.float64)))
+                actx.np.zeros((20, 20), dtype=np.float64)))
 
     assert ary.tags_of_type(ExampleTag)
     assert ary.axes[0].tags_of_type(ExampleTag)
@@ -1623,11 +1669,11 @@ def test_compile_anonymous_function(actx_factory):
     actx = actx_factory()
     f = actx.compile(lambda x: 2*x+40)
     np.testing.assert_allclose(
-        actx.to_numpy(f(1+actx.zeros((10, 4), "float64"))),
+        actx.to_numpy(f(1+actx.np.zeros((10, 4), "float64"))),
         42)
     f = actx.compile(partial(lambda x: 2*x+40))
     np.testing.assert_allclose(
-        actx.to_numpy(f(1+actx.zeros((10, 4), "float64"))),
+        actx.to_numpy(f(1+actx.np.zeros((10, 4), "float64"))),
         42)
 
 

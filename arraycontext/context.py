@@ -75,8 +75,8 @@ actual array contexts:
 
 .. currentmodule:: arraycontext
 
-The interface of an array context
----------------------------------
+The :class:`ArrayContext` Interface
+-----------------------------------
 
 .. autoclass:: ArrayContext
 
@@ -171,6 +171,7 @@ from typing import (
     TypeVar,
     Union,
 )
+from warnings import warn
 
 import numpy as np
 
@@ -216,7 +217,11 @@ class Array(Protocol):
     def dtype(self) -> "np.dtype[Any]":
         ...
 
-    def __getitem__(self, index: Union[slice, int]) -> "Array":
+    # Covering all the possible index variations is hard and (kind of) futile.
+    # If you'd  like to see how, try changing the Any to
+    # AxisIndex = slice | int | "Array"
+    # Index = AxisIndex |tuple[AxisIndex]
+    def __getitem__(self, index: Any) -> "Array":
         ...
 
 
@@ -249,10 +254,6 @@ class ArrayContext(ABC):
 
     .. versionadded:: 2020.2
 
-    .. automethod:: empty
-    .. automethod:: zeros
-    .. automethod:: empty_like
-    .. automethod:: zeros_like
     .. automethod:: from_numpy
     .. automethod:: to_numpy
     .. automethod:: call_loopy
@@ -277,8 +278,10 @@ class ArrayContext(ABC):
 
         A :class:`tuple` of types that are the valid array classes the
         context can operate on. However, it is not necessary that *all* the
-        :class:`ArrayContext`\ 's operations would be legal for the types in
-        *array_types*.
+        :class:`ArrayContext`\ 's operations are legal for the types in
+        *array_types*. Note that this tuple is *only* intended for use
+        with :func:`isinstance`. Other uses are not allowed. This allows
+        for 'types' with overridden :meth:`class.__instancecheck__`.
 
     .. automethod:: freeze
     .. automethod:: thaw
@@ -293,40 +296,21 @@ class ArrayContext(ABC):
     def __init__(self) -> None:
         self.np = self._get_fake_numpy_namespace()
 
+    @abstractmethod
     def _get_fake_numpy_namespace(self) -> Any:
-        from .fake_numpy import BaseFakeNumpyNamespace
-        return BaseFakeNumpyNamespace(self)
+        ...
 
     def __hash__(self) -> int:
         raise TypeError(f"unhashable type: '{type(self).__name__}'")
 
-    @abstractmethod
-    def empty(self,
-              shape: Union[int, Tuple[int, ...]],
-              dtype: "np.dtype[Any]") -> Array:
-        pass
-
-    @abstractmethod
     def zeros(self,
               shape: Union[int, Tuple[int, ...]],
               dtype: "np.dtype[Any]") -> Array:
-        pass
-
-    def empty_like(self, ary: Array) -> Array:
-        from warnings import warn
-        warn(f"{type(self).__name__}.empty_like is deprecated and will stop "
-            "working in 2023. Prefer actx.np.zeros_like instead.",
+        warn(f"{type(self).__name__}.zeros is deprecated and will stop "
+            "working in 2025. Use actx.np.zeros instead.",
             DeprecationWarning, stacklevel=2)
 
-        return self.empty(shape=ary.shape, dtype=ary.dtype)
-
-    def zeros_like(self, ary: Array) -> Array:
-        from warnings import warn
-        warn(f"{type(self).__name__}.zeros_like is deprecated and will stop "
-            "working in 2023. Use actx.np.zeros_like instead.",
-            DeprecationWarning, stacklevel=2)
-
-        return self.zeros(shape=ary.shape, dtype=ary.dtype)
+        return self.np.zeros(shape, dtype)
 
     @abstractmethod
     def from_numpy(self,
@@ -582,5 +566,9 @@ def tag_axes(
     return ary
 
 # }}}
+
+
+class UntransformedCodeWarning(UserWarning):
+    pass
 
 # vim: foldmethod=marker
