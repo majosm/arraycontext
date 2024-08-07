@@ -1537,6 +1537,15 @@ def test_outer(actx_factory):
                 b_bcast_dc_of_dofs.momentum),
             enthalpy=a_bcast_dc_of_dofs.enthalpy*b_bcast_dc_of_dofs.enthalpy))
 
+    # Array context scalars
+    two = actx.from_numpy(np.array(2))
+    assert equal(
+        outer(Bcast2(two), b_bcast_dc_of_dofs),
+        Bcast2(two)*b_bcast_dc_of_dofs)
+    assert equal(
+        outer(a_bcast_dc_of_dofs, Bcast2(two)),
+        a_bcast_dc_of_dofs*Bcast2(two))
+
 # }}}
 
 

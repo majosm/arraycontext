@@ -793,7 +793,7 @@ def with_container_arithmetic(
                                         warn("Broadcasting {cls} over array "
                                             f"context array type {{type(arg1)}} "
                                             "is deprecated "
-                                            "and will no longer work in 2025.",
+                                            "and will no longer work in 2025."
                                             "Use arraycontext.Bcast to achieve the "
                                             "desired broadcasting semantics.",
                                             DeprecationWarning, stacklevel=2)

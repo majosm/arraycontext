@@ -970,11 +970,6 @@ def outer(a: Any, b: Any) -> Any:
     a_is_ndarray = isinstance(a, np.ndarray)
     b_is_ndarray = isinstance(b, np.ndarray)
 
-    if a_is_ndarray and a.dtype != object:
-        raise TypeError("passing a non-object numpy array is not allowed")
-    if b_is_ndarray and b.dtype != object:
-        raise TypeError("passing a non-object numpy array is not allowed")
-
     if treat_as_scalar(a) or treat_as_scalar(b):
         return a*b
     elif a_is_ndarray and b_is_ndarray:
