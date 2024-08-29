@@ -140,6 +140,9 @@ class NumpyFakeNumpyNamespace(BaseFakeNumpyNamespace):
             except TypeError:
                 return True
 
+    def zeros(self, shape, dtype):
+        return np.zeros(shape, dtype)
+
     def zeros_like(self, ary):
         return rec_multimap_array_container(np.zeros_like, ary)
 
