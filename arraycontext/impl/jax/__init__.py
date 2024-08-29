@@ -90,7 +90,7 @@ class EagerJAXArrayContext(ArrayContext):
     def empty(self, shape, dtype):
         from warnings import warn
         warn(f"{type(self).__name__}.empty is deprecated and will stop "
-            "working in 2023. Prefer actx.zeros instead.",
+            "working in 2023. Prefer actx.np.zeros instead.",
             DeprecationWarning, stacklevel=2)
 
         import jax.numpy as jnp
@@ -151,7 +151,7 @@ class EagerJAXArrayContext(ArrayContext):
         return array
 
     def tag_axis(self, iaxis, tags: ToTagSetConvertible, array):
-        # TODO: See `jax.experiemental.maps.xmap`, proabably that should be useful?
+        # TODO: See `jax.experiemental.maps.xmap`, probably that should be useful?
         return array
 
     def call_loopy(self, t_unit, **kwargs):

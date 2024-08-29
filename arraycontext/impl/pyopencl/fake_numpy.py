@@ -39,6 +39,7 @@ from arraycontext.container.traversal import (
     rec_multimap_reduce_array_container,
 )
 from arraycontext.fake_numpy import BaseFakeNumpyLinalgNamespace
+from arraycontext.impl.pyopencl.taggable_cl_array import TaggableCLArray
 from arraycontext.loopy import LoopyBasedFakeNumpyNamespace
 
 
@@ -59,6 +60,11 @@ class PyOpenCLFakeNumpyNamespace(LoopyBasedFakeNumpyNamespace):
     # NOTE: when adding a function here, also add it to `array_context.rst` docs!
 
     # {{{ array creation routines
+
+    def zeros(self, shape, dtype) -> TaggableCLArray:
+        import arraycontext.impl.pyopencl.taggable_cl_array as tga
+        return tga.zeros(self._array_context.queue, shape, dtype,
+                         allocator=self._array_context.allocator)
 
     def empty_like(self, ary):
         from warnings import warn
@@ -231,7 +237,7 @@ class PyOpenCLFakeNumpyNamespace(LoopyBasedFakeNumpyNamespace):
             else:
                 return reduce(
                         partial(cl_array.minimum, queue=queue),
-                        [rec_equal(ix, iy)for (_, ix), (_, iy) in iterable],
+                        [rec_equal(x_i, y_i)for (_, x_i), (_, y_i) in iterable],
                         true)
 
         result = rec_equal(a, b)

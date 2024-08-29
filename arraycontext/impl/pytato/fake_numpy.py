@@ -84,6 +84,9 @@ class PytatoFakeNumpyNamespace(LoopyBasedFakeNumpyNamespace):
 
     # {{{ array creation routines
 
+    def zeros(self, shape, dtype):
+        return pt.zeros(shape, dtype)
+
     def zeros_like(self, ary):
         def _zeros_like(array):
             # return self._array_context.zeros(
@@ -191,7 +194,7 @@ class PytatoFakeNumpyNamespace(LoopyBasedFakeNumpyNamespace):
             else:
                 return reduce(
                         pt.logical_and,
-                        [rec_equal(ix, iy) for (_, ix), (_, iy) in iterable],
+                        [rec_equal(x_i, y_i) for (_, x_i), (_, y_i) in iterable],
                         true)
 
         return rec_equal(a, b)

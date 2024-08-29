@@ -56,6 +56,9 @@ class EagerJAXFakeNumpyNamespace(BaseFakeNumpyNamespace):
 
     # {{{ array creation routines
 
+    def zeros(self, shape, dtype):
+        return jnp.zeros(shape=shape, dtype=dtype)
+
     def empty_like(self, ary):
         from warnings import warn
         warn(f"{type(self._array_context).__name__}.np.empty_like is "
@@ -174,7 +177,7 @@ class EagerJAXFakeNumpyNamespace(BaseFakeNumpyNamespace):
             else:
                 return reduce(
                         jnp.logical_and,
-                        [rec_equal(ix, iy) for (_, ix), (_, iy) in iterable],
+                        [rec_equal(x_i, y_i) for (_, x_i), (_, y_i) in iterable],
                         true)
 
         return rec_equal(a, b)

@@ -119,6 +119,7 @@ known-local-folder = [
 lines-after-imports = 2
 
 [tool.mypy]
+# TODO: unpin jax version on CI when this gets bumped to 3.10
 python_version = "3.8"
 warn_unused_ignores = true
 # TODO: enable this
@@ -135,3 +136,8 @@ module = [
     "jax.*",
 ]
 ignore_missing_imports = true
+
+[tool.typos.default]
+extend-ignore-re = [
+  "(?Rm)^.*(#|//)\\s*spellchecker:\\s*disable-line$"
+]
