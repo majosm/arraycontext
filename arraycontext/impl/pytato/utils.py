@@ -23,7 +23,7 @@ THE SOFTWARE.
 """
 
 
-from typing import TYPE_CHECKING, Any, Dict, Mapping, Set, Tuple
+from typing import TYPE_CHECKING, Any, Dict, Mapping, Set, Tuple, TypeAlias
 
 from pytato.array import (
     AbstractResultWithNamedArrays,
@@ -52,8 +52,19 @@ class _DatawrapperToBoundPlaceholderMapper(CopyMapper):
     :class:`pytato.DataWrapper` is replaced with a deterministic copy of
     :class:`Placeholder`.
     """
-    def __init__(self) -> None:
-        super().__init__()
+    _FunctionCacheT: TypeAlias = CopyMapper._FunctionCacheT
+
+    def __init__(
+            self,
+            err_on_collision: bool | None = None,
+            err_on_no_op_duplication: bool | None = None,
+            _function_cache: _FunctionCacheT | None = None
+            ) -> None:
+        super().__init__(
+            err_on_collision=err_on_collision,
+            err_on_no_op_duplication=err_on_no_op_duplication,
+            _function_cache=_function_cache)
+
         self.bound_arguments: Dict[str, Any] = {}
         self.vng = UniqueNameGenerator()
         self.seen_inputs: Set[str] = set()
