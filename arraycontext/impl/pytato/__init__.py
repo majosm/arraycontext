@@ -527,6 +527,9 @@ class PytatoPyOpenCLArrayContext(_BasePytatoArrayContext):
         pt_dict_of_named_arrays = pt.make_dict_of_named_arrays(
                 key_to_pt_arrays)
 
+        pt_dict_of_named_arrays = pt.transform.Deduplicator()(
+            pt_dict_of_named_arrays)
+
         # FIXME: _normalize_pt_expr doesn't support functions
         pt_dict_of_named_arrays = pt.tag_all_calls_to_be_inlined(
             pt_dict_of_named_arrays)
