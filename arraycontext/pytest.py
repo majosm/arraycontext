@@ -175,9 +175,17 @@ class _PytestPytatoPyOpenCLArrayContextFactory(PytestPyOpenCLArrayContextFactory
         return self.actx_class(queue, allocator=alloc)
 
     def __str__(self):
-        return ("<PytatoPyOpenCLArrayContext for "
+        return (f"<{self.__class__.__name__} for "
                 f"<pyopencl.Device '{self.device.name.strip()}' "
                 f"on '{self.device.platform.name.strip()}'>>")
+
+
+class _PytestSplitPytatoPyOpenCLArrayContextFactory(
+        _PytestPytatoPyOpenCLArrayContextFactory):
+    @property
+    def actx_class(self):
+        from arraycontext.impl.pytato.split_actx import SplitPytatoPyOpenCLArrayContext
+        return SplitPytatoPyOpenCLArrayContext
 
 
 class _PytestEagerJaxArrayContextFactory(PytestArrayContextFactory):
@@ -272,6 +280,7 @@ _ARRAY_CONTEXT_FACTORY_REGISTRY: dict[str, type[PytestArrayContextFactory]] = {
     "pyopencl": _PytestPyOpenCLArrayContextFactoryWithClass,
     "pytato:pyopencl": _PytestPytatoPyOpenCLArrayContextFactory,
     "pytato:jax": _PytestPytatoJaxArrayContextFactory,
+    "pytato:split": _PytestSplitPytatoPyOpenCLArrayContextFactory,
     "eagerjax": _PytestEagerJaxArrayContextFactory,
     "numpy": _PytestNumpyArrayContextFactory,
     }
