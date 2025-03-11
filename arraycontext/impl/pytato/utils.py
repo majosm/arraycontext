@@ -48,7 +48,12 @@ from pytato.array import (
 )
 from pytato.function import FunctionDefinition
 from pytato.target.loopy import LoopyPyOpenCLTarget
-from pytato.transform import ArrayOrNames, CopyMapper
+from pytato.transform import (
+    ArrayOrNames,
+    CopyMapper,
+    Deduplicator,
+    TransformMapperCache,
+)
 from pytools import UniqueNameGenerator, memoize_method
 
 from arraycontext import ArrayContext
@@ -65,8 +70,19 @@ class _DatawrapperToBoundPlaceholderMapper(CopyMapper):
     :class:`pytato.DataWrapper` is replaced with a deterministic copy of
     :class:`Placeholder`.
     """
-    def __init__(self) -> None:
-        super().__init__()
+    def __init__(
+            self,
+            err_on_collision: bool = False,
+            err_on_created_duplicate: bool = False,
+            _cache: TransformMapperCache[ArrayOrNames, []] | None = None,
+            _function_cache: TransformMapperCache[FunctionDefinition, []] | None = None
+            ) -> None:
+        super().__init__(
+            err_on_collision=err_on_collision,
+            err_on_created_duplicate=err_on_created_duplicate,
+            _cache=_cache,
+            _function_cache=_function_cache)
+
         self.bound_arguments: dict[str, Any] = {}
         self.vng = UniqueNameGenerator()
         self.seen_inputs: set[str] = set()
@@ -117,6 +133,13 @@ def _normalize_pt_expr(
     Deterministic naming of placeholders permits more effective caching of
     equivalent graphs.
     """
+    if get_num_call_sites(expr):
+       raise NotImplementedError(
+            "_normalize_pt_expr is not compatible with expressions that "
+            "contain function calls.")
+
+    expr = Deduplicator()(expr)
+
     if get_num_call_sites(expr):
         raise NotImplementedError(
             "_normalize_pt_expr is not compatible with expressions that "
