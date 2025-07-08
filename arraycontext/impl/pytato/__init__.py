@@ -67,20 +67,24 @@ from arraycontext.container.traversal import (
     with_array_context,
 )
 from arraycontext.context import (
-    Array,
     ArrayContext,
+    P,
+    UntransformedCodeWarning,
+)
+from arraycontext.metadata import NameHint
+from arraycontext.typing import (
+    Array,
+    ArrayOrArithContainerOrScalarT,
     ArrayOrContainerOrScalarT,
     ArrayOrContainerT,
     ArrayOrScalar,
     ScalarLike,
-    UntransformedCodeWarning,
     is_scalar_like,
 )
-from arraycontext.metadata import NameHint
 
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping
+    from collections.abc import Callable, Hashable, Mapping
 
     import jax.numpy as jnp
     import loopy as lp
@@ -99,6 +103,8 @@ import logging
 
 
 logger = logging.getLogger(__name__)
+
+_EMPTY_TAG_SET: frozenset[Tag] = frozenset()
 
 
 # {{{ tag conversion
@@ -163,10 +169,11 @@ class _BasePytatoArrayContext(ArrayContext, abc.ABC):
         """
         super().__init__()
 
-        self._freeze_prg_cache: dict[pt.DictOfNamedArrays, lp.TranslationUnit] = {}
+        self._freeze_prg_cache: dict[
+            pt.AbstractResultWithNamedArrays, lp.TranslationUnit] = {}
         self._dag_transform_cache: dict[
-                pt.DictOfNamedArrays,
-                tuple[pt.DictOfNamedArrays, str]] = {}
+                pt.AbstractResultWithNamedArrays,
+                tuple[pt.AbstractResultWithNamedArrays, str]] = {}
 
         if compile_trace_callback is None:
             def _compile_trace_callback(what, stage, ir):
@@ -226,8 +233,8 @@ class _BasePytatoArrayContext(ArrayContext, abc.ABC):
 
     # {{{ compilation
 
-    def transform_dag(self, dag: pytato.DictOfNamedArrays
-                      ) -> pytato.DictOfNamedArrays:
+    def transform_dag(self, dag: pytato.AbstractResultWithNamedArrays
+                      ) -> pytato.AbstractResultWithNamedArrays:
         """
         Returns a transformed version of *dag*. Sub-classes are supposed to
         override this method to implement context-specific transformations on
@@ -277,6 +284,33 @@ class _BasePytatoArrayContext(ArrayContext, abc.ABC):
         return None
 
     # }}}
+
+    @override
+    def outline(self,
+                f: Callable[P, ArrayOrContainerOrScalarT],
+                *,
+                id: Hashable | None = None,
+                tags: frozenset[Tag] = _EMPTY_TAG_SET,
+            ) -> Callable[P, ArrayOrContainerOrScalarT]:
+        from pytato.tags import FunctionIdentifier
+
+        from .outline import OutlinedCall
+        id = id or getattr(f, "__name__", None)
+        if id is not None:
+            tags = tags | {FunctionIdentifier(id)}
+
+        # FIXME Ideally, the ParamSpec P should be bounded by ArrayOrContainerOrScalar,
+        # but this is not currently possible:
+        # https://github.com/python/typing/issues/1027
+
+        # FIXME An aspect of this that's a bit of a lie is that the types
+        # coming out of the outlined function are not guaranteed to be the same
+        # as the ones that the un-outlined function would return. That said,
+        # if f is written only in terms of the array context types (Array, ScalarLike,
+        # containers), this is close enough to being true that I'm willing
+        # to take responsibility. -AK, 2025-06-30
+        return cast("Callable[P, ArrayOrContainerOrScalarT]",
+                    cast("object", OutlinedCall(self, f, tags)))
 
 # }}}
 
@@ -533,8 +567,8 @@ class PytatoPyOpenCLArrayContext(_BasePytatoArrayContext):
             TaggableCLArray,
             to_tagged_cl_array,
         )
-        from arraycontext.impl.pytato.compile import _ary_container_key_stringifier
         from arraycontext.impl.pytato.utils import (
+            _ary_container_key_stringifier,
             _normalize_pt_expr,
             get_cl_axes_from_pt_axes,
         )
@@ -601,10 +635,14 @@ class PytatoPyOpenCLArrayContext(_BasePytatoArrayContext):
                     rec_keyed_map_array_container(_to_frozen, array),
                     actx=None)
 
-        pt_dict_of_named_arrays = pt.make_dict_of_named_arrays(
-                key_to_pt_arrays)
-        normalized_expr, bound_arguments = _normalize_pt_expr(
-                pt_dict_of_named_arrays)
+        dag = pt.transform.deduplicate(
+            pt.make_dict_of_named_arrays(key_to_pt_arrays))
+
+        # FIXME: Remove this if/when _normalize_pt_expr gets support for functions
+        dag = pt.tag_all_calls_to_be_inlined(dag)
+        dag = pt.inline_calls(dag)
+
+        normalized_expr, bound_arguments = _normalize_pt_expr(dag)
 
         try:
             pt_prg = self._freeze_prg_cache[normalized_expr]
@@ -747,13 +785,30 @@ class PytatoPyOpenCLArrayContext(_BasePytatoArrayContext):
 
         return call_loopy(program, processed_kwargs, entrypoint)
 
-    def compile(self, f: Callable[..., Any]) -> Callable[..., Any]:
-        from .compile import LazilyPyOpenCLCompilingFunctionCaller
-        return LazilyPyOpenCLCompilingFunctionCaller(self, f)
+    @override
+    def compile(self,
+                f: Callable[P, ArrayOrArithContainerOrScalarT]
+            ) -> Callable[P, ArrayOrArithContainerOrScalarT]:
+        # FIXME Ideally, the ParamSpec P should be bounded by ArrayOrContainerOrScalar,
+        # but this is not currently possible:
+        # https://github.com/python/typing/issues/1027
 
-    def transform_dag(self, dag: pytato.DictOfNamedArrays
-                      ) -> pytato.DictOfNamedArrays:
+        # FIXME An aspect of this that's a bit of a lie is that the types
+        # coming out of the outlined function are not guaranteed to be the same
+        # as the ones that the un-outlined function would return. That said,
+        # if f is written only in terms of the array context types (Array, ScalarLike,
+        # containers), this is close enough to being true that I'm willing
+        # to take responsibility. -AK, 2025-06-30
+
+        from .compile import LazilyPyOpenCLCompilingFunctionCaller
+        return cast("Callable[P, ArrayOrArithContainerOrScalarT]",
+            LazilyPyOpenCLCompilingFunctionCaller(self, f))
+
+    def transform_dag(self, dag: pytato.AbstractResultWithNamedArrays
+                      ) -> pytato.AbstractResultWithNamedArrays:
         import pytato as pt
+        dag = pt.tag_all_calls_to_be_inlined(dag)
+        dag = pt.inline_calls(dag)
         dag = pt.transform.materialize_with_mpms(dag)
         return dag
 
@@ -789,7 +844,7 @@ class PytatoPyOpenCLArrayContext(_BasePytatoArrayContext):
                 # multiple placeholders with the same name that are not
                 # also the same object are not allowed, and this would produce
                 # a different Placeholder object of the same name.
-                if (not isinstance(ary, pt.Placeholder)
+                if (not isinstance(ary, pt.Placeholder | pt.NamedArray)
                         and not ary.tags_of_type(NameHint)):
                     ary = ary.tagged(NameHint(name))
 
@@ -815,6 +870,8 @@ class PytatoJAXArrayContext(_BasePytatoArrayContext):
     An arraycontext that uses :mod:`pytato` to represent the thawed state of
     the arrays and compiles the expressions using
     :class:`pytato.target.python.JAXPythonTarget`.
+
+    .. automethod:: transform_dag
     """
 
     def __init__(self,
@@ -871,7 +928,7 @@ class PytatoJAXArrayContext(_BasePytatoArrayContext):
         import pytato as pt
 
         from arraycontext.container.traversal import rec_keyed_map_array_container
-        from arraycontext.impl.pytato.compile import _ary_container_key_stringifier
+        from arraycontext.impl.pytato.utils import _ary_container_key_stringifier
 
         array_as_dict: dict[str, jnp.ndarray | pt.Array] = {}
         key_to_frozen_subary: dict[str, jnp.ndarray] = {}
@@ -916,7 +973,9 @@ class PytatoJAXArrayContext(_BasePytatoArrayContext):
                     rec_keyed_map_array_container(_to_frozen, array),
                     actx=None)
 
-        pt_dict_of_named_arrays = pt.make_dict_of_named_arrays(key_to_pt_arrays)
+        pt_dict_of_named_arrays = pt.transform.deduplicate(
+            pt.make_dict_of_named_arrays(key_to_pt_arrays))
+
         transformed_dag = self.transform_dag(pt_dict_of_named_arrays)
         pt_prg = pt.generate_jax(transformed_dag, jit=True)
         out_dict = pt_prg()
@@ -943,9 +1002,32 @@ class PytatoJAXArrayContext(_BasePytatoArrayContext):
             self._rec_map_container(_thaw, array, self._frozen_array_types),
             actx=self)
 
-    def compile(self, f: Callable[..., Any]) -> Callable[..., Any]:
+    @override
+    def compile(self,
+                f: Callable[P, ArrayOrArithContainerOrScalarT]
+            ) -> Callable[P, ArrayOrArithContainerOrScalarT]:
+        # FIXME Ideally, the ParamSpec P should be bounded by ArrayOrContainerOrScalar,
+        # but this is not currently possible:
+        # https://github.com/python/typing/issues/1027
+
+        # FIXME An aspect of this that's a bit of a lie is that the types
+        # coming out of the outlined function are not guaranteed to be the same
+        # as the ones that the un-outlined function would return. That said,
+        # if f is written only in terms of the array context types (Array, ScalarLike,
+        # containers), this is close enough to being true that I'm willing
+        # to take responsibility. -AK, 2025-06-30
+
         from .compile import LazilyJAXCompilingFunctionCaller
-        return LazilyJAXCompilingFunctionCaller(self, f)
+        return cast("Callable[P, ArrayOrArithContainerOrScalarT]",
+            LazilyJAXCompilingFunctionCaller(self, f))
+
+    @override
+    def transform_dag(self, dag: pytato.AbstractResultWithNamedArrays
+                      ) -> pytato.AbstractResultWithNamedArrays:
+        import pytato as pt
+        dag = pt.tag_all_calls_to_be_inlined(dag)
+        dag = pt.inline_calls(dag)
+        return dag
 
     @override
     def tag(self,

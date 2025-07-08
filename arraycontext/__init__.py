@@ -30,9 +30,6 @@ THE SOFTWARE.
 """
 
 from .container import (
-    ArithArrayContainer,
-    ArrayContainer,
-    ArrayContainerT,
     NotAnArrayContainerError,
     SerializationKey,
     SerializedContainer,
@@ -54,7 +51,7 @@ from .container.traversal import (
     flat_size_and_dtype,
     flatten,
     freeze,
-    from_numpy,
+    from_numpy,  # pyright: ignore[reportDeprecated]
     map_array_container,
     map_reduce_array_container,
     mapped_over_array_containers,
@@ -69,27 +66,13 @@ from .container.traversal import (
     rec_multimap_reduce_array_container,
     stringify_array_container_tree,
     thaw,
-    to_numpy,
+    to_numpy,  # pyright: ignore[reportDeprecated]
     unflatten,
     with_array_context,
 )
 from .context import (
-    Array,
     ArrayContext,
     ArrayContextFactory,
-    ArrayOrArithContainer,
-    ArrayOrArithContainerOrScalar,
-    ArrayOrArithContainerOrScalarT,
-    ArrayOrArithContainerT,
-    ArrayOrContainer,
-    ArrayOrContainerOrScalar,
-    ArrayOrContainerOrScalarT,
-    ArrayOrContainerT,
-    ArrayOrScalar,
-    ArrayOrScalarT,
-    ArrayT,
-    Scalar,
-    ScalarLike,
     tag_axes,
 )
 from .impl.jax import EagerJAXArrayContext
@@ -104,6 +87,26 @@ from .pytest import (
     pytest_generate_tests_for_array_contexts,
 )
 from .transform_metadata import CommonSubexpressionTag, ElementwiseMapKernelTag
+from .typing import (
+    ArithArrayContainer,
+    Array,
+    ArrayContainer,
+    ArrayContainerT,
+    ArrayOrArithContainer,
+    ArrayOrArithContainerOrScalar,
+    ArrayOrArithContainerOrScalarT,
+    ArrayOrArithContainerT,
+    ArrayOrContainer,
+    ArrayOrContainerOrScalar,
+    ArrayOrContainerOrScalarT,
+    ArrayOrContainerT,
+    ArrayOrScalar,
+    ArrayOrScalarT,
+    ArrayT,
+    ContainerOrScalarT,
+    Scalar,
+    ScalarLike,
+)
 
 
 __all__ = (
@@ -126,6 +129,7 @@ __all__ = (
     "ArrayT",
     "BcastUntilActxArray",
     "CommonSubexpressionTag",
+    "ContainerOrScalarT",
     "EagerJAXArrayContext",
     "ElementwiseMapKernelTag",
     "NotAnArrayContainerError",

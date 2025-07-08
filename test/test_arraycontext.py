@@ -26,11 +26,13 @@ THE SOFTWARE.
 import logging
 from dataclasses import dataclass
 from functools import partial
+from typing import TYPE_CHECKING, cast
 
 import numpy as np
 import pytest
 
-from pytools.obj_array import make_obj_array
+from pytools import ndindex
+from pytools.obj_array import ObjectArray1D, make_obj_array
 from pytools.tag import Tag
 
 from arraycontext import (
@@ -55,6 +57,10 @@ from arraycontext.pytest import (
     _PytestPytatoPyOpenCLArrayContextFactory,
 )
 from testlib import DOFArray, MyContainer, MyContainerDOFBcast, Velocity2D
+
+
+if TYPE_CHECKING:
+    from numpy.typing import NDArray
 
 
 logger = logging.getLogger(__name__)
@@ -143,7 +149,7 @@ def _get_test_containers(actx, ambient_dim=2, shapes=50_000):
     ary_dof = x
     ary_of_dofs = make_obj_array([x] * ambient_dim)
     mat_of_dofs = np.empty((ambient_dim, ambient_dim), dtype=object)
-    for i in np.ndindex(mat_of_dofs.shape):
+    for i in ndindex(mat_of_dofs.shape):
         mat_of_dofs[i] = x
 
     return (ary_dof, ary_of_dofs, mat_of_dofs, dataclass_of_dofs,
@@ -1044,7 +1050,8 @@ def test_numpy_conversion(actx_factory: ArrayContextFactory):
     ac_actx = actx.from_numpy(ac)
     ac_roundtrip = actx.to_numpy(ac_actx)
 
-    assert np.allclose(ac.mass, ac_roundtrip.mass)
+    assert np.allclose(cast("NDArray[np.floating]", ac.mass),
+                       cast("NDArray[np.floating]", ac_roundtrip.mass))
     assert np.allclose(ac.momentum[0], ac_roundtrip.momentum[0])
 
     if not isinstance(actx, NumpyArrayContext):
@@ -1054,7 +1061,7 @@ def test_numpy_conversion(actx_factory: ArrayContextFactory):
             actx.from_numpy(ac_with_cl)
 
         with pytest.raises(TypeError):
-            actx.from_numpy(ac_actx)  # pyright: ignore[reportArgumentType,reportCallIssue]
+            actx.from_numpy(ac_actx)
 
         with pytest.raises(TypeError):
             actx.to_numpy(ac)
@@ -1184,6 +1191,48 @@ def test_actx_compile_with_tuple_output_keys(actx_factory: ArrayContextFactory):
     np.testing.assert_allclose(result.u, -3.14*v_y)
     np.testing.assert_allclose(result.v, 3.14*v_x)
 
+
+def test_actx_compile_with_outlined_function(actx_factory: ArrayContextFactory):
+    actx = actx_factory()
+    rng = np.random.default_rng()
+
+    @actx.outline
+    def outlined_scale_and_orthogonalize(alpha: float, vel: Velocity2D) -> Velocity2D:
+        return scale_and_orthogonalize(alpha, vel)
+
+    def multi_scale_and_orthogonalize(
+                alpha: float,
+                vel1: Velocity2D,
+                vel2: Velocity2D
+            ) -> ObjectArray1D[Velocity2D]:
+        return make_obj_array([
+            outlined_scale_and_orthogonalize(alpha, vel1),
+            outlined_scale_and_orthogonalize(alpha, vel2)])
+
+    compiled_rhs = actx.compile(multi_scale_and_orthogonalize)
+
+    v1_x = rng.uniform(size=10)
+    v1_y = rng.uniform(size=10)
+    v2_x = rng.uniform(size=10)
+    v2_y = rng.uniform(size=10)
+
+    v1_x_actx = actx.from_numpy(v1_x)
+    v1_y_actx = actx.from_numpy(v1_y)
+    v2_x_actx = actx.from_numpy(v2_x)
+    v2_y_actx = actx.from_numpy(v2_y)
+
+    vel1 = Velocity2D(v1_x_actx, v1_y_actx, actx)
+    vel2 = Velocity2D(v2_x_actx, v2_y_actx, actx)
+
+    scaled_speed1, scaled_speed2 = compiled_rhs(np.float64(3.14), vel1, vel2)
+
+    result1 = actx.to_numpy(scaled_speed1)
+    result2 = actx.to_numpy(scaled_speed2)
+    np.testing.assert_allclose(result1.u, -3.14*v1_y)
+    np.testing.assert_allclose(result1.v, 3.14*v1_x)
+    np.testing.assert_allclose(result2.u, -3.14*v2_y)
+    np.testing.assert_allclose(result2.v, 3.14*v2_x)
+
 # }}}
 
 
@@ -1199,6 +1248,7 @@ def test_container_equality(actx_factory: ArrayContextFactory):
 
     # MyContainer sets eq_comparison to False, so equality comparison should
     # not succeed.
+    # (formerly) type-ignored because pyright is right and I'm sorry.
     dc = MyContainer(name="yoink", mass=ary_dof, momentum=None, enthalpy=None)
     dc2 = MyContainer(name="yoink", mass=ary_dof, momentum=None, enthalpy=None)
     assert dc != dc2
@@ -1397,6 +1447,8 @@ def test_array_container_with_numpy(actx_factory: ArrayContextFactory):
             v=DOFArray(actx, (actx.from_numpy(np.zeros(42)),)),
             )
 
+    # FIXME: Possibly, rec_map_container's types could be taught that numpy
+    # arrays can happen, but life's too short.
     rec_map_container(lambda x: x, mystate)
 
 

@@ -26,8 +26,17 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
+
+# The imports below ignore deprecation because we're testing behavior when
+# deprecated types are used.
+
 import logging
-from typing import Optional, Tuple, cast  # noqa: UP035
+from typing import (  # noqa: UP035
+    ClassVar,
+    Optional,  # pyright: ignore[reportDeprecated]
+    Tuple,  # pyright: ignore[reportDeprecated]
+    cast,
+)
 
 import numpy as np
 import pytest
@@ -39,7 +48,7 @@ logger = logging.getLogger(__name__)
 # {{{ test_pt_actx_key_stringification_uniqueness
 
 def test_pt_actx_key_stringification_uniqueness():
-    from arraycontext.impl.pytato.compile import _ary_container_key_stringifier
+    from arraycontext.impl.pytato.utils import _ary_container_key_stringifier
 
     assert (_ary_container_key_stringifier(((3, 2), 3))
             != _ary_container_key_stringifier((3, (2, 3))))
@@ -79,7 +88,7 @@ def test_dataclass_array_container() -> None:
         # Deliberately left as Tuple to test compatibility.
         y: Tuple[Array, Array]  # noqa: UP006
 
-    with pytest.raises(TypeError, match="Typing annotation not supported on field 'y'"):
+    with pytest.raises(TypeError, match="Type annotation not supported on field 'y'"):
         dataclass_array_container(ArrayContainerWithTuple)
 
     @dataclass
@@ -87,7 +96,7 @@ def test_dataclass_array_container() -> None:
         x: Array
         y: tuple[Array, Array]
 
-    with pytest.raises(TypeError, match="Typing annotation not supported on field 'y'"):
+    with pytest.raises(TypeError, match="Type annotation not supported on field 'y'"):
         dataclass_array_container(ArrayContainerWithTupleAlt)
 
     # }}}
@@ -150,10 +159,10 @@ def test_dataclass_container_unions() -> None:
     @dataclass
     class ArrayContainerWithWrongUnion:
         x: np.ndarray
-        y: np.ndarray | float
+        y: np.ndarray | list[bool]
 
     with pytest.raises(TypeError, match="Field 'y' union contains non-array container"):
-        # NOTE: float is not an ArrayContainer, so y should fail
+        # NOTE: bool is not an ArrayContainer, so y should fail
         dataclass_array_container(ArrayContainerWithWrongUnion)
 
     # }}}
@@ -207,6 +216,8 @@ def test_stringify_array_container_tree() -> None:
         has_disk: bool
         norm_type: str
         extent: float
+
+        __array_ufunc__: ClassVar[None] = None
 
     rng = np.random.default_rng(seed=42)
     a = ArrayWrapper(ary=cast("Array", rng.random(10)))
