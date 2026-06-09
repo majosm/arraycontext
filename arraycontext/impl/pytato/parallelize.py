@@ -613,6 +613,9 @@ def parallelize_disjoint_loop_sets(
     t_unit = split_iteration_domain_across_work_items(
         t_unit, max_device_compute_units)
     t_unit = add_gbarrier_between_disjoint_loop_sets(t_unit)
+    # loopy's global barrier verification is overzealous; it wants barriers between
+    # dependent instructions even if the dependency is only on the local data
+    t_unit = lp.set_options(t_unit, disable_global_barriers=True)
     return t_unit
 
 # }}}
