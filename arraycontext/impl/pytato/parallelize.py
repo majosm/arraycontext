@@ -28,6 +28,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 import contextlib
+import math
 from dataclasses import dataclass
 from functools import reduce
 from itertools import pairwise
@@ -120,6 +121,32 @@ def get_loop_set_dep_graph(
 
 
 # {{{ split_iteration_domain_across_work_items
+
+# Coalescing granularity (warp = 32 on NVIDIA, wavefront = 64 on AMD). Used as
+# the rounding unit when shrinking work-group sizes for short loops; 32 divides
+# 64, so a group stays a sub-multiple of the wavefront on AMD as well.
+_WARP_SIZE = 32
+
+
+def _round_up_to_warp(n: int) -> int:
+    return _WARP_SIZE * ((n + _WARP_SIZE - 1) // _WARP_SIZE)
+
+
+def _clamp_local_size(length: float | int, local_size: int) -> int:
+    """Shrink *local_size* so a loop of *length* doesn't fill a work-group axis
+    with idle work-items, while keeping it a multiple of the warp width."""
+    if math.isinf(length):
+        return local_size
+    return min(local_size, _round_up_to_warp(max(1, int(length))))
+
+
+def _clamp_ngroups(length: float | int, per_group: int, ngroups: int) -> int:
+    """Shrink *ngroups* so a loop of *length* (with *per_group* work-items along
+    the grid axis per group) doesn't launch empty work-groups."""
+    if math.isinf(length):
+        return ngroups
+    return min(ngroups, max(1, -(-int(length) // per_group)))
+
 
 def get_iname_approx_length(kernel: lp.LoopKernel, iname: str) -> float | int:
     from loopy.isl_helpers import static_max_of_pw_aff
@@ -272,6 +299,12 @@ def split_loop_set_across_work_items(
             ngroups = max_device_compute_units * 4  # '4' to overfill the device
             local_zero_size = 64
 
+            # For short loops, shrink the work-group size and group count so we
+            # don't launch a large grid of idle/predicated work-items.
+            length = iname_to_approx_length[iname]
+            local_zero_size = _clamp_local_size(length, local_zero_size)
+            ngroups = _clamp_ngroups(length, local_zero_size, ngroups)
+
             chunk_iname = vng(f"{iname}_chunk")
             inner_iname = vng(f"{iname}_inner")
             kernel = lp.split_iname(
@@ -400,6 +433,14 @@ def split_loop_set_across_work_items(
                     and iname_to_approx_length[local_zero_src_iname] >= ngroups):
                 grid_iname, local_zero_src_iname = (
                     local_zero_src_iname, grid_iname)
+
+            # For short loops, shrink the work-group/grid sizes so we don't launch
+            # large numbers of idle work-items. l.0 follows the l.0 loop's length;
+            # the group count follows the grid loop's length.
+            local_zero_size = _clamp_local_size(
+                iname_to_approx_length[local_zero_src_iname], local_zero_size)
+            ngroups = _clamp_ngroups(
+                iname_to_approx_length[grid_iname], local_one_size, ngroups)
 
             grid_chunk_iname = vng(f"{grid_iname}_chunk")
             grid_inner_iname = vng(f"{grid_iname}_inner")
