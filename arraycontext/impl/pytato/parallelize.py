@@ -376,9 +376,6 @@ def split_loop_set_across_work_items(
 
     else:
         if inames_to_parallelize[-2] in outer_non_redn_inames:
-            bigger_iname = inames_to_parallelize[-1]
-            smaller_iname = inames_to_parallelize[-2]
-
             # TODO: Make size-aware
             ngroups = max_device_compute_units * 4  # '4' to overfill the device
             # Keep local_zero_size (the l.0/fastest hardware axis) a multiple of
@@ -387,26 +384,43 @@ def split_loop_set_across_work_items(
             local_one_size = 2
             local_zero_size = 32
 
-            bigger_chunk_iname = vng(f"{bigger_iname}_chunk")
-            bigger_inner_iname = vng(f"{bigger_iname}_inner")
+            # By default, the longer loop drives the work-group grid (g.0 + l.1)
+            # and the shorter loop fills the l.0 (fastest) axis.
+            grid_iname = inames_to_parallelize[-1]
+            local_zero_src_iname = inames_to_parallelize[-2]
+
+            # For coalesced global access we'd rather have the l.0 axis index the
+            # trailing (contiguous, in C order) memory axis. outer_iname_pos gives
+            # each iname's position in the assignee subscript; larger == more
+            # trailing. If the contiguous iname is the one currently driving the
+            # grid, swap the roles so it lands on l.0 instead -- but only when the
+            # other (shorter) iname is still long enough to fill the device with
+            # work-groups, so we don't trade coalescing for an underfilled grid.
+            if (outer_iname_pos[grid_iname] > outer_iname_pos[local_zero_src_iname]
+                    and iname_to_approx_length[local_zero_src_iname] >= ngroups):
+                grid_iname, local_zero_src_iname = (
+                    local_zero_src_iname, grid_iname)
+
+            grid_chunk_iname = vng(f"{grid_iname}_chunk")
+            grid_inner_iname = vng(f"{grid_iname}_inner")
             kernel = lp.split_iname(
-                kernel, bigger_iname, ngroups * local_one_size,
-                outer_iname=bigger_chunk_iname, inner_iname=bigger_inner_iname)
+                kernel, grid_iname, ngroups * local_one_size,
+                outer_iname=grid_chunk_iname, inner_iname=grid_inner_iname)
 
             # TODO: Think about whether lp.join_inames could be used below
 
-            group_iname = vng(f"{bigger_iname}_group")
-            local_one_iname = vng(f"{bigger_iname}_local_one")
+            group_iname = vng(f"{grid_iname}_group")
+            local_one_iname = vng(f"{grid_iname}_local_one")
             kernel = lp.split_iname(
-                kernel, bigger_inner_iname, local_one_size,
+                kernel, grid_inner_iname, local_one_size,
                 outer_iname=group_iname, inner_iname=local_one_iname,
                 outer_tag="g.0", inner_tag="l.1")
 
-            smaller_chunk_iname = vng(f"{smaller_iname}_chunk")
-            local_zero_iname = vng(f"{smaller_iname}_local_zero")
+            local_zero_chunk_iname = vng(f"{local_zero_src_iname}_chunk")
+            local_zero_iname = vng(f"{local_zero_src_iname}_local_zero")
             kernel = lp.split_iname(
-                kernel, smaller_iname, local_zero_size,
-                outer_iname=smaller_chunk_iname, inner_iname=local_zero_iname,
+                kernel, local_zero_src_iname, local_zero_size,
+                outer_iname=local_zero_chunk_iname, inner_iname=local_zero_iname,
                 inner_tag="l.0")
 
         else:
