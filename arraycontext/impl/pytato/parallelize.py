@@ -381,8 +381,11 @@ def split_loop_set_across_work_items(
 
             # TODO: Make size-aware
             ngroups = max_device_compute_units * 4  # '4' to overfill the device
-            local_one_size = 4
-            local_zero_size = 16
+            # Keep local_zero_size (the l.0/fastest hardware axis) a multiple of
+            # the warp/wavefront width so global accesses along that axis coalesce.
+            # Total work-group size is unchanged (local_one_size * local_zero_size).
+            local_one_size = 2
+            local_zero_size = 32
 
             bigger_chunk_iname = vng(f"{bigger_iname}_chunk")
             bigger_inner_iname = vng(f"{bigger_iname}_inner")
