@@ -1045,7 +1045,7 @@ class PytatoParallelPyOpenCLArrayContext(PytatoPyOpenCLArrayContext):
         # overhead dominates (small problems).
         t_unit = parallelize_disjoint_loop_sets(
             t_unit, self.queue.device.max_compute_units,
-            single_launch_config=True)
+            single_launch_config=False)
 
         # FIXME: Is this something that this abstract-ish
         # PytatoParallelPyOpenCLArrayContext class should be calling, or should it
