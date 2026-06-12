@@ -253,21 +253,12 @@ def get_outer_non_redn_inames(
     return outer_non_redn_inames
 
 
-@dataclass(frozen=False)
-class _KernelLoopStats:
-    n_single_non_redn: int = 0
-    n_multiple_non_redn: int = 0
-    n_single_redn: int = 0
-    n_mixed: int = 0
-
-
 def split_loop_set_across_work_items(
         kernel: lp.LoopKernel,
         callables: CallablesTable,
         loop_set: LoopSet,
         iname_to_approx_length: Mapping[str, float | int],
         max_device_compute_units: int,
-        stats: _KernelLoopStats,
 ) -> lp.LoopKernel:
     # Could possibly do something fancier that also includes the individual inner
     # loops in the loop set, but for now just looking at the inames shared between
@@ -348,8 +339,6 @@ def split_loop_set_across_work_items(
             #     kernel, f"{iname}_inner_outer", local_one_size, inner_tag="l.1",
             #     outer_tag="g.0")
 
-            stats.n_single_non_redn += 1
-
         else:
             from loopy.match import Id
             from loopy.transform.data import reduction_arg_to_subst_rule
@@ -428,8 +417,6 @@ def split_loop_set_across_work_items(
 
                 compute_insns.append(compute_insn_id)
 
-            stats.n_single_redn += 1
-
     else:
         if inames_to_parallelize[-2] in outer_non_redn_inames:
             # TODO: Make size-aware
@@ -487,8 +474,6 @@ def split_loop_set_across_work_items(
                 outer_iname=local_zero_chunk_iname, inner_iname=local_zero_iname,
                 inner_tag="l.0")
 
-            stats.n_multiple_non_redn += 1
-
         else:
             non_redn_iname = inames_to_parallelize[-1]
             redn_iname = inames_to_parallelize[-2]
@@ -529,8 +514,6 @@ def split_loop_set_across_work_items(
                     inner_tag="l.0")
                 kernel = lp.split_reduction_outward(kernel, local_zero_iname)
 
-            stats.n_mixed += 1
-
     return kernel
 
 
@@ -540,8 +523,7 @@ def split_loop_set_uniform_launch_config(
         outer_non_redn_inames: frozenset[str],
         iname_to_approx_length: Mapping[str, float | int],
         ngroups: int,
-        local_zero_size: int,
-        stats: _KernelLoopStats) -> lp.LoopKernel:
+        local_zero_size: int) -> lp.LoopKernel:
     """
     Parallelize a single non-reduction iname of *loop_set* with a fixed
     ``g.0 x l.0`` launch config (*ngroups* work-groups of *local_zero_size*
@@ -572,9 +554,6 @@ def split_loop_set_uniform_launch_config(
         kernel, inner_iname, local_zero_size,
         outer_iname=group_iname, inner_iname=local_zero_iname,
         outer_tag="g.0", inner_tag="l.0")
-
-    stats.n_single_non_redn += 1
-
     return kernel
 
 
@@ -590,8 +569,6 @@ def split_iteration_domain_across_work_items_for_single_kernel(
 
     loop_sets = get_disjoint_loop_sets(kernel)
 
-    stats = _KernelLoopStats()
-
     if single_launch_config:
         # Give every non-reduction loop set the same (g.0 x l.0) launch config,
         # so that independent loop sets can share a single call kernel / launch
@@ -604,23 +581,16 @@ def split_iteration_domain_across_work_items_for_single_kernel(
             if outer_non_redn_inames:
                 kernel = split_loop_set_uniform_launch_config(
                     kernel, loop_set, outer_non_redn_inames,
-                    iname_to_approx_length, ngroups, local_zero_size, stats)
+                    iname_to_approx_length, ngroups, local_zero_size)
             else:
                 kernel = split_loop_set_across_work_items(
                     kernel, callables, loop_set, iname_to_approx_length,
-                    max_device_compute_units, stats)
+                    max_device_compute_units)
     else:
         for loop_set in loop_sets:
             kernel = split_loop_set_across_work_items(
                 kernel, callables, loop_set, iname_to_approx_length,
-                max_device_compute_units, stats)
-
-    print(f"{kernel.name}:")
-    print(f"{stats.n_single_non_redn=}")
-    print(f"{stats.n_multiple_non_redn=}")
-    print(f"{stats.n_single_redn=}")
-    print(f"{stats.n_mixed=}")
-    print(flush=True)
+                max_device_compute_units)
 
     return kernel
 
