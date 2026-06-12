@@ -241,6 +241,18 @@ def get_outer_iname_pos_from_loop_set(
             for i, iname in enumerate(iname_order)}
 
 
+def get_outer_non_redn_inames(
+        kernel: lp.LoopKernel, loop_set: LoopSet) -> frozenset[str]:
+    """Return the non-reduction inames shared by every instruction in
+    *loop_set*. A loop set with at least one such iname can be parallelized
+    over a (work-group, work-item) grid without restructuring reductions, and
+    is thus eligible for the uniform single-launch-config path."""
+    outer_non_redn_inames = loop_set.inames
+    for insn_id in loop_set.insns_in_loop_set:
+        outer_non_redn_inames &= kernel.id_to_insn[insn_id].within_inames
+    return outer_non_redn_inames
+
+
 def split_loop_set_across_work_items(
         kernel: lp.LoopKernel,
         callables: CallablesTable,
@@ -252,9 +264,7 @@ def split_loop_set_across_work_items(
     # loops in the loop set, but for now just looking at the inames shared between
     # all instructions in the set
 
-    outer_non_redn_inames = loop_set.inames
-    for insn_id in loop_set.insns_in_loop_set:
-        outer_non_redn_inames &= kernel.id_to_insn[insn_id].within_inames
+    outer_non_redn_inames = get_outer_non_redn_inames(kernel, loop_set)
 
     outer_redn_inames = loop_set.inames
     for insn_id in loop_set.insns_in_loop_set:
@@ -507,25 +517,80 @@ def split_loop_set_across_work_items(
     return kernel
 
 
+def split_loop_set_uniform_launch_config(
+        kernel: lp.LoopKernel,
+        loop_set: LoopSet,
+        outer_non_redn_inames: frozenset[str],
+        iname_to_approx_length: Mapping[str, float | int],
+        ngroups: int,
+        local_zero_size: int) -> lp.LoopKernel:
+    """
+    Parallelize a single non-reduction iname of *loop_set* with a fixed
+    ``g.0 x l.0`` launch config (*ngroups* work-groups of *local_zero_size*
+    work-items, with a serial ``chunk`` loop absorbing the loop length). The
+    config is identical for every loop set, so that independent loop sets can be
+    co-launched in a single call kernel. Any other (reduction or non-reduction)
+    inames in the loop set are left as serial loops.
+    """
+    outer_iname_pos = get_outer_iname_pos_from_loop_set(
+        kernel, loop_set, outer_non_redn_inames)
+
+    # Largest loop for parallelism; tie-break towards the trailing (contiguous)
+    # axis so the l.0 axis coalesces.
+    iname = max(
+        outer_non_redn_inames,
+        key=lambda iname: (
+            iname_to_approx_length[iname], outer_iname_pos[iname]))
+
+    vng = kernel.get_var_name_generator()
+    chunk_iname = vng(f"{iname}_chunk")
+    inner_iname = vng(f"{iname}_inner")
+    kernel = lp.split_iname(
+        kernel, iname, ngroups * local_zero_size,
+        outer_iname=chunk_iname, inner_iname=inner_iname)
+    group_iname = vng(f"{iname}_group")
+    local_zero_iname = vng(f"{iname}_local_zero")
+    kernel = lp.split_iname(
+        kernel, inner_iname, local_zero_size,
+        outer_iname=group_iname, inner_iname=local_zero_iname,
+        outer_tag="g.0", inner_tag="l.0")
+    return kernel
+
+
 @for_each_kernel
 def split_iteration_domain_across_work_items_for_single_kernel(
         kernel: lp.LoopKernel,
         callables: CallablesTable,
         max_device_compute_units: int, *,
         single_launch_config: bool = False) -> lp.LoopKernel:
-    if single_launch_config:
-        raise NotImplementedError("single_launch_config==True isn't implemented yet.")
-
     iname_to_approx_length = {
         iname: get_iname_approx_length(kernel, iname)
         for iname in kernel.all_inames()}
 
     loop_sets = get_disjoint_loop_sets(kernel)
 
-    for loop_set in loop_sets:
-        kernel = split_loop_set_across_work_items(
-            kernel, callables, loop_set, iname_to_approx_length,
-            max_device_compute_units)
+    if single_launch_config:
+        # Give every non-reduction loop set the same (g.0 x l.0) launch config,
+        # so that independent loop sets can share a single call kernel / launch
+        # (see assign_loop_sets_to_call_kernels). Reduction-only loop sets don't
+        # fit this mold, so they keep their own config (and their own launch).
+        ngroups = max_device_compute_units * 4  # '4' to overfill the device
+        local_zero_size = 64
+        for loop_set in loop_sets:
+            outer_non_redn_inames = get_outer_non_redn_inames(kernel, loop_set)
+            if outer_non_redn_inames:
+                kernel = split_loop_set_uniform_launch_config(
+                    kernel, loop_set, outer_non_redn_inames,
+                    iname_to_approx_length, ngroups, local_zero_size)
+            else:
+                kernel = split_loop_set_across_work_items(
+                    kernel, callables, loop_set, iname_to_approx_length,
+                    max_device_compute_units)
+    else:
+        for loop_set in loop_sets:
+            kernel = split_loop_set_across_work_items(
+                kernel, callables, loop_set, iname_to_approx_length,
+                max_device_compute_units)
 
     return kernel
 
@@ -572,21 +637,36 @@ def assign_loop_sets_to_call_kernels(
         key=lambda ls: min(ls.insns_in_loop_set))
 
     if single_launch_config:
-        # Assign loop sets to call kernels based on their dependencies
-
-        loop_set_to_call_kernel = dict.fromkeys(toposorted_loop_sets, 0)
+        # Group loop sets by dependency depth. Every dependency edge strictly
+        # increases the depth, so loop sets at the same depth are mutually
+        # independent and can share a single call kernel (they all use the same
+        # uniform launch config; see split_loop_set_uniform_launch_config).
+        loop_set_depth = dict.fromkeys(toposorted_loop_sets, 0)
         for loop_set in toposorted_loop_sets:
             for succ in loop_set_dep_graph[loop_set]:
-                loop_set_to_call_kernel[succ] = max(
-                    loop_set_to_call_kernel[succ],
-                    loop_set_to_call_kernel[loop_set] + 1)
+                loop_set_depth[succ] = max(
+                    loop_set_depth[succ],
+                    loop_set_depth[loop_set] + 1)
 
-        n_call_kernels = max(loop_set_to_call_kernel.values()) + 1
-        call_kernels: list[set[LoopSet]] = [set() for _ in range(n_call_kernels)]
-        for loop_set, iknl in loop_set_to_call_kernel.items():
-            call_kernels[iknl].add(loop_set)
+        # Reduction-only loop sets can't take the uniform config, so they each
+        # get their own call kernel rather than being merged with the rest.
+        call_kernels: list[frozenset[LoopSet]] = []
+        for depth in range(max(loop_set_depth.values()) + 1):
+            sets_at_depth = [
+                ls for ls in toposorted_loop_sets if loop_set_depth[ls] == depth]
+            uniform = [
+                ls for ls in sets_at_depth
+                if get_outer_non_redn_inames(kernel, ls)]
+            isolated = [
+                ls for ls in sets_at_depth
+                if not get_outer_non_redn_inames(kernel, ls)]
+            if uniform:
+                call_kernels.append(frozenset(uniform))
+            for loop_set in sorted(
+                    isolated, key=lambda ls: min(ls.insns_in_loop_set)):
+                call_kernels.append(frozenset([loop_set]))
 
-        return tuple(frozenset(call_kernel) for call_kernel in call_kernels)
+        return tuple(call_kernels)
 
     else:
         # Make a separate call kernel for each loop set
@@ -662,15 +742,24 @@ def add_gbarrier_between_disjoint_loop_sets(
 
 def parallelize_disjoint_loop_sets(
         t_unit: lp.TranslationUnit,
-        max_device_compute_units: int) -> lp.TranslationUnit:
+        max_device_compute_units: int, *,
+        single_launch_config: bool = False) -> lp.TranslationUnit:
     """
     Parallelize *t_unit* by tagging the inames of each disjoint loop set with
     work-group and work-item axes and enforcing ordering between dependent
     loop sets.
+
+    If *single_launch_config* is *True*, all non-reduction loop sets are given
+    the same launch configuration, so that independent loop sets are merged into
+    a single call kernel (launch) instead of one launch per loop set. This trades
+    per-loop-set launch-config tuning for fewer launches, which is advantageous
+    when launch overhead dominates (e.g. small problem sizes).
     """
     t_unit = split_iteration_domain_across_work_items(
-        t_unit, max_device_compute_units)
-    t_unit = add_gbarrier_between_disjoint_loop_sets(t_unit)
+        t_unit, max_device_compute_units,
+        single_launch_config=single_launch_config)
+    t_unit = add_gbarrier_between_disjoint_loop_sets(
+        t_unit, single_launch_config=single_launch_config)
     # loopy's global barrier verification is overzealous; it wants barriers between
     # dependent instructions even if the dependency is only on the local data
     t_unit = lp.set_options(t_unit, disable_global_barriers=True)

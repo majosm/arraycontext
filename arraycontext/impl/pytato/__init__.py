@@ -1040,8 +1040,12 @@ class PytatoParallelPyOpenCLArrayContext(PytatoPyOpenCLArrayContext):
             parallelize_disjoint_loop_sets,
         )
 
+        # TODO: Gate single_launch_config on problem size -- it trades per-loop-set
+        # launch-config tuning for fewer launches, which only helps when launch
+        # overhead dominates (small problems).
         t_unit = parallelize_disjoint_loop_sets(
-            t_unit, self.queue.device.max_compute_units)
+            t_unit, self.queue.device.max_compute_units,
+            single_launch_config=True)
 
         # FIXME: Is this something that this abstract-ish
         # PytatoParallelPyOpenCLArrayContext class should be calling, or should it
