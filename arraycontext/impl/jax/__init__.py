@@ -35,6 +35,8 @@ from typing import TYPE_CHECKING, cast
 import numpy as np
 from typing_extensions import override
 
+from pytools import memoize_in
+
 from arraycontext.container.traversal import (
     rec_map_container,
     with_array_context,
@@ -156,21 +158,31 @@ class EagerJAXArrayContext(ArrayContext):
         return jnp.einsum(spec, *args)
 
     @override
-    def make_csr_matrix(
-            self,
-            shape: tuple[int, int],
-            elem_values: Array,
-            elem_col_indices: Array,
-            row_starts: Array,
-            *,
-            tags: ToTagSetConvertible = _EMPTY_TAG_SET,
-            axes: tuple[ToTagSetConvertible, ...] | None = None) -> CSRMatrix:
-        raise NotImplementedError("Sparse matrices aren't yet supported with JAX.")
-
-    @override
     def sparse_matmul(
             self, x1: SparseMatrix, x2: ArrayOrContainer) -> ArrayOrContainer:
-        raise NotImplementedError("Sparse matrices aren't yet supported with JAX.")
+        import jax.numpy as jnp
+        from jax.experimental import sparse as jax_sparse
+
+        if isinstance(x1, CSRMatrix):
+            @memoize_in(x1, "jax_matrix")
+            def _get_jax_matrix():
+                assert isinstance(x1.elem_values, jnp.ndarray)
+                assert isinstance(x1.elem_col_indices, jnp.ndarray)
+                assert isinstance(x1.row_starts, jnp.ndarray)
+                return jax_sparse.CSR(
+                    (x1.elem_values, x1.elem_col_indices, x1.row_starts),
+                    shape=x1.shape)
+
+            jax_matrix = _get_jax_matrix()
+
+            def _matmul(ary: ArrayOrScalar) -> ArrayOrScalar:
+                assert isinstance(ary, jnp.ndarray)
+                return jax_matrix @ ary
+
+            return cast("ArrayOrContainer", rec_map_container(_matmul, x2))
+
+        else:
+            raise TypeError(f"unrecognized sparse matrix type '{type(x1).__name__}'")
 
     def clone(self):
         return type(self)()
